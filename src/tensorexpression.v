@@ -1081,10 +1081,16 @@ Ltac2 test_tensorexpr (ub : int) : TensorExpr :=
           (test_tensorlist 5)))).
 
 
-
-Ltac2 Eval Message.print (print_tensorexpr (
+(* Performance of this test was quadratic: 
+5 -> 0.009, 10 -> 0.03, 15 -> 0.06, 20 -> 0.068, 25 -> 0.108, 30 -> 0.146, 35 -> 0.201, 40 -> 0.266, 45 -> 0.355, 50 -> 0.408, 55 -> 0.494, 60 -> 0.601, 65 -> 0.706, 70 -> 0.815, 75 -> 0.932, 80 -> 1.057, 85 -> 1.256, 90 -> 1.435, 95 -> 1.573, 100 -> 1.759
+*)
+(* Ltac2 Eval let f n := 
+  let _ := (print_tensorexpr (
     tensor_expr_of_tensor_list
-    (hypergraph_to_tensor_list (test_graph 5)))).
+    (hypergraph_to_tensor_list (test_graph n)))) in () in 
+  List.iter (fun i => let n := (Int.mul (Int.add 1 i) 5) in 
+  printf "%i" n;
+  Control.time None (fun () => Notations.do0 (fun () => 10) (fun () =>f n))) (List.range 0 20). *)
 
 
 
