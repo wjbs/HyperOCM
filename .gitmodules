@@ -1,0 +1,3 @@
+[submodule "src/hypercaml"]
+	path = src/hypercaml
+	url = https://github.com/akissinger/hypercaml.git

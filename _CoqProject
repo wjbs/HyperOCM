@@ -1,3 +1,12 @@
+src/META.hyperocm
+META.hyperocm
+
 -I _build/default/src
+-I src
+-I .
 
 -R _build/default/src HyperOCM
+
+src/hypercaml_interface.ml
+src/hypercaml_interface.mli
+src/hypercaml_interface.mlpack

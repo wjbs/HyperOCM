@@ -1,0 +1,11 @@
+package "hypercaml_interface" (
+    directory = "."
+    version = "dev"
+    description = "A hypercaml interface plugin"
+    requires = "coq-core.plugins.ltac2 hypercaml yojson"
+    archive(byte) = "hypercaml_interface.cma"
+    archive(native) = "hypercaml_interface.cmxa"
+    plugin(byte) = "hypercaml_interface.cma"
+    plugin(native) = "hypercaml_interface.cmxs"
+)
+directory = "."

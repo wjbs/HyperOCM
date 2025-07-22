@@ -18,4 +18,5 @@
 
  (depends
    (coq-quantumlib (>= 1.7.0))
-   (coq (>= 8.20))))
+   (coq (>= 8.20))
+   (yojson (>= 0))))
