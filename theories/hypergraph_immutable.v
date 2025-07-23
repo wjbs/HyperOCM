@@ -2,150 +2,30 @@ Require Import Ltac2.Init.
 
 Require Ltac2.Ltac2.
 
+Require hypergraph.
+
+Import hypergraph.ListForEach.
+
+Require Import FSetExtra.
+
+(* FIXME: Remove! Just for reference. *)
+(* Require HypercamlInterface.
+Module HI := HypercamlInterface. *)
+
+
 Set Default Proof Mode "Classic".
 
 Ltac2 max (x : int) (y : int) : int :=
   if Int.lt x y then y else x.
 
-Require Import FSetExtra.
-
-Module Function.
-
-Ltac2 compose : ('b -> 'c) -> ('a -> 'b) -> 'a -> 'c :=
-  fun g f a => g (f a).
-
-End Function.
-
-Module SumType.
-Import Function.
-
-Ltac2 Type ('a, 'b) sum :=
-  [ OrL ('a) | 
-    OrR ('b) ].
-
-Ltac2 or_introl : 'a -> ('a, 'b) sum :=
-  fun a => OrL a.
-
-Ltac2 or_intror : 'b -> ('a, 'b) sum :=
-  fun b => OrR b.
-
-Ltac2 inl : 'a -> ('a, 'b) sum :=
-  fun a => OrL a.
-
-Ltac2 inr : 'b -> ('a, 'b) sum :=
-  fun b => OrR b.
-
-Ltac2 elim : ('a -> 'c) -> ('b -> 'c) -> ('a, 'b) sum -> 'c :=
-  fun l r ab => 
-  match ab with 
-  | OrL a => l a
-  | OrR b => r b
-  end.
-
-Ltac2 map : ('a -> 'c) -> ('b -> 'd) -> ('a, 'b) sum -> ('c, 'd) sum :=
-  fun l r => elim (compose inl l) (compose inr r).
-
-End SumType.
-
-
-Module ListForEach.
-Import List.
-Import SumType.
-
-(* A variant of the for-each loop along with an additional state.
-  Each iteration of the body updates the state based on the value 
-  of the list, returning the updated state and an optional return 
-  value. If an iteration returns a (non-None) return value, it is 
-  the final iteration which is executed. If all steps return None 
-  then the [or_else] function determines the return value. *)
-Ltac2 fold_each (l : 'value list) (init : 'state)
-  (body : 'state -> 'value -> 'state * 'ret option) 
-  (or_else : 'state -> 'ret) : 'state * 'ret := 
-  let (state, ret) := 
-    fold_left (fun ((state, ret) : 'state * 'ret option) (value : 'value) =>
-      match ret with 
-      | Some r => (state, Some r)
-      | None => 
-        body state value
-      end) (init, None) l in 
-  match ret with 
-  | Some r => (state, r)
-  | None => (state, or_else state)
-  end.
-
-(* A variant of the for-each loop along with an additional state.
-  Each iteration of the body updates the state based on the value 
-  of the list, returning the updated state or a return value that
-  shortcuts past the remaining executions of the loop. If each of
-  the iterations return None, the [or_else] function computes the
-  return value. *)
-Ltac2 fold_each' (l : 'value list) (init : 'state)
-  (body : 'state -> 'value -> ('state, 'ret) sum) 
-  (or_else : 'state -> 'ret) : 'state * 'ret := 
-  fold_each l init (fun state value => 
-    match body state value with 
-    | OrL new_state => (new_state, None)
-    | OrR ret => (state, Some ret)
-    end) or_else.
-
-(* A "for each" loop from which the body can return, shortcutting
-  execution. Useful for executing the body at most once per value
-  of the list. If no iteration of the body returns, the [default]
-  function determines the return value. *)
-Ltac2 for_each (l : 'a list) (body : 'a -> 'ret option) 
-  (default : unit -> 'ret) : 'ret :=
-  snd (fold_each l () (fun () value => ((), body value)) default).
-
-(* A helper function to "continue" from within a [fold_each] body
-  to shortcut execution. Specifically, just takes a ['state] to a 
-  ['state * 'ret option] by using [None] as the second component. *)
-Ltac2 fold_continue (state : 'state) : 'state * 'ret option :=
-  (state, None).
-
-(* A helper function to "continue" within a [fold_each'] function
-  body to shortcut execution. Specifically, takes a ['state] to a 
-  [('state, 'ret) sum] by including in the left component. *)
-Ltac2 fold_continue' (state : 'state) : ('state, 'ret) sum :=
-  OrL state.
-
-(* A helper function to "continue" in a [for_each] body function.
-  Specifically, just returns [None] as a ['ret option]. *)
-Ltac2 for_continue : unit -> 'ret option :=
-  fun () => None.
-
-(* A helper function to "return" a value from a [fold_each] body.
-  It takes a ['state] and a ['ret] to a ['state * 'ret option] by
-  wrapping the latter in [Some]. *)
-Ltac2 fold_return (state : 'state) (ret : 'ret) : 'state * 'ret option :=
-  (state, Some ret).
-
-(* A helper function to "return" a value from a [fold_each'] body
-  to shortcut execution. Specifically, it takes a ['ret] value to 
-  a [('state, 'ret) sum] by inclusion in the second component. *)
-Ltac2 fold_return' (ret : 'ret) : ('state, 'ret) sum :=
-  OrR ret.
-
-(* A helper function to "return" from a [for_each] body iteration
-  to shortcut execution. Simply takes a ['ret] to a ['ret option]
-  by wrapping it in [Some]. *)
-Ltac2 for_return (ret : 'ret) : 'ret option :=
-  Some ret.
-
-Ltac2 continue : 'ret option := None.
-   
-End ListForEach.
-
-Import ListForEach.
-
-Ltac2 Type VType := string option.
 
 Ltac2 Type 'a VData := {
   (* vtype : VType ; (* vtype *) *)
-  mutable in_edges : int FSet.t; (* in_edges *)
-  mutable out_edges : int FSet.t; (* out_edges *)
-  mutable in_indices : int FSet.t; (* in_indices *)
-  mutable out_indices : int FSet.t; (* out_indices *)
-  value : 'a option (* value *)
+  in_edges : int FSet.t; (* in_edges *)
+  out_edges : int FSet.t; (* out_edges *)
+  in_indices : int FSet.t; (* in_indices *)
+  out_indices : int FSet.t; (* out_indices *)
+  vvalue : 'a option (* value *)
 }.
 
 (* Ltac2 vtype : 'a VData -> VType :=
@@ -164,14 +44,14 @@ Ltac2 vout_indices : 'a VData -> int FSet.t :=
   fun vd => vd.(out_indices).
 
 Ltac2 vvalue : 'a VData -> 'a option :=
-  fun vd => vd.(value).
+  fun vd => vd.(vvalue).
 
 Ltac2 mk_vdata : 'a option -> 'a VData := fun a => {
   in_edges := FSet.empty FSet.Tags.int_tag;
   out_edges := FSet.empty FSet.Tags.int_tag;
   in_indices := FSet.empty FSet.Tags.int_tag;
   out_indices := FSet.empty FSet.Tags.int_tag;
-  value := a
+  vvalue := a
 }.
 
 Ltac2 mk_vdata_from ie oe ii oi : 'a option -> 'a VData := fun a => {
@@ -179,7 +59,7 @@ Ltac2 mk_vdata_from ie oe ii oi : 'a option -> 'a VData := fun a => {
   out_edges := oe;
   in_indices := ii;
   out_indices := oi;
-  value := a
+  vvalue := a
 }.
 
 Ltac2 vcopy (v : 'a VData) : 'a VData := {
@@ -187,8 +67,18 @@ Ltac2 vcopy (v : 'a VData) : 'a VData := {
   out_edges := v.(out_edges);
   in_indices := v.(in_indices);
   out_indices := v.(out_indices);
-  value := v.(value)
+  vvalue := v.(vvalue)
 }.
+
+Ltac2 vdata_equal (v_eq : 'a -> 'a -> bool) : 'a VData -> 'a VData -> bool :=
+  fun v v' => 
+  List.fold_right Bool.and [
+    FSet.equal (v.(in_edges)) (v'.(in_edges));
+    FSet.equal (v.(in_indices)) (v'.(in_indices));
+    FSet.equal (v.(out_edges)) (v'.(out_edges));
+    FSet.equal (v.(out_indices)) (v'.(out_indices));
+    Option.equal v_eq (v.(vvalue)) (v'.(vvalue))
+  ] true.
 
 (* Import Printf. 
 Ltac2 Eval let v := mk_vdata (Some ()) in 
@@ -203,8 +93,8 @@ Ltac2 Eval let v := mk_vdata (Some ()) in
 
 
 Ltac2 Type 'a EData := {
-  mutable s : int list; (* s[ource] *)
-  mutable t : int list; (* t[arget] *)
+  s : int list; (* s[ource] *)
+  t : int list; (* t[arget] *)
   value : 'a option (* value *)
 }.
 
@@ -228,13 +118,22 @@ Ltac2 ecopy (ed : 'a EData) : 'a EData := {
   value := ed.(value)
 }.
 
+
+Ltac2 edata_equal (e_eq : 'e -> 'e -> bool) : 'e EData -> 'e EData -> bool :=
+  fun e e' => 
+  List.fold_right Bool.and [
+    List.equal Int.equal (e.(s)) (e'.(s));
+    List.equal Int.equal (e.(t)) (e'.(t));
+    Option.equal e_eq (e.(value)) (e'.(value))
+  ] true.
+
 Ltac2 Type ('v, 'e) Graph := {
-  mutable vdata : (int, 'v VData) FMap.t;
-  mutable edata : (int, 'e EData) FMap.t;
-  mutable _inputs : int list;
-  mutable _outputs : int list;
-  mutable _vindex : int;
-  mutable _eindex : int;
+  vdata : (int, 'v VData) FMap.t;
+  edata : (int, 'e EData) FMap.t;
+  _inputs : int list;
+  _outputs : int list;
+  _vindex : int;
+  _eindex : int;
 }.
 
 Ltac2 mk_graph : unit -> ('v, 'e) Graph := fun () => {
@@ -245,6 +144,45 @@ Ltac2 mk_graph : unit -> ('v, 'e) Graph := fun () => {
   _vindex := 0;
   _eindex := 0;
 }.
+
+Ltac2 mk_graph_from : (int, 'v VData) FMap.t -> (int, 'e EData) FMap.t -> 
+  int list -> int list -> int -> int -> ('v, 'e) Graph :=
+  fun vdata edata ins outs vidx eidx => {
+  vdata := vdata;
+  edata := edata;
+  _inputs := ins;
+  _outputs := outs;
+  _vindex := vidx;
+  _eindex := eidx;
+}.
+
+Ltac2 vdata_is_orphan (vd : 'v VData) : bool :=
+  List.fold_right Bool.and [FSet.is_empty (vd.(in_edges));
+   FSet.is_empty (vd.(out_edges));
+   FSet.is_empty (vd.(in_indices));
+   FSet.is_empty (vd.(out_indices))] true.
+
+(* FIXME: Move *)
+Ltac2 map_equal (v_eq : 'v -> 'v -> bool) : 
+  ('k, 'v) FMap.t -> ('k, 'v) FMap.t -> bool :=
+  fun m m' => 
+  Bool.and (Int.equal (FMap.cardinal m) (FMap.cardinal m')) (
+    FMap.fold2 (fun _k may_v may_v' b => 
+      Bool.and b 
+      (match may_v, may_v' with 
+      | Some v, Some v' => v_eq v v'
+      | None, None => true
+      | _, _ => false
+      end)) m m' true).
+
+Ltac2 graph_equal (v_eq : 'v -> 'v -> bool) (e_eq : 'e -> 'e -> bool) : 
+  ('v, 'e) Graph -> ('v, 'e) Graph -> bool :=
+  fun g g' => List.fold_right Bool.and [
+    map_equal (vdata_equal v_eq) (g.(vdata)) (g'.(vdata));
+    map_equal (edata_equal e_eq) (g.(edata)) (g'.(edata));
+    List.equal Int.equal (g.(_inputs)) (g'.(_inputs));
+    List.equal Int.equal (g.(_outputs)) (g'.(_outputs))
+  ] true.
 
 Module GraphPrinting.
 
@@ -320,6 +258,119 @@ Ltac2 print_graph (pr_v : 'v -> message) (pr_e : 'e -> message)
       (g.(_outputs)) of_int) ])]).
 
 Ltac2 print_int_graph g := print_graph of_int of_int g.
+Ltac2 print_string_graph g := print_graph of_string of_string g.
+
+
+Ltac2 prlist_sep_lastsep (no_empty : bool) (sep_thunk : unit -> message) 
+  (lastsep_thunk : unit -> message) (elem : 'a -> message) (l : 'a list) : message :=
+  let sep := sep_thunk () in
+  let lastsep := lastsep_thunk () in
+  let elems := List.map elem l in
+  let filtered_elems :=
+    if no_empty then
+      List.filter (fun e => Bool.neg (String.is_empty (to_string e))) elems
+    else
+      elems
+  in
+  let rec insert_seps es :=
+    match es with
+    | []     => of_string ""
+    | h :: rest => match rest with 
+      | [] => h
+      | e :: rest' => match rest' with 
+        | [] => concats [h; lastsep; e]
+        | _ => concats [h; sep; insert_seps (e :: rest')]
+        end
+      end
+    end
+  in
+  insert_seps filtered_elems.
+
+Ltac2 prlist_strict pr l := prlist_sep_lastsep true 
+  (fun () => of_string "") (fun () => of_string "") pr l.
+(* [prlist_with_sep sep pr [a ; ... ; c]] outputs
+   [pr a ++ sep() ++ ... ++ sep() ++ pr c] *)
+Ltac2 prlist_with_sep sep pr l := 
+  prlist_sep_lastsep false sep sep pr l.
+
+Ltac2 pr_edge_to_parse (pr_e : 'e -> message) (e : int) (ed : 'e EData) : message :=
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let pr_colon () := concats [of_string ":"; break 1 0] in 
+  let spc () := break 1 0 in
+  let hov := hovbox in 
+  let str := of_string in 
+  let int := of_int in 
+  
+  hov 2 (concats [Option.map_default pr_e (str "") (ed.(value)); spc(); 
+    str "("; int e; str ")"; spc(); pr_colon();
+    prlist_with_sep pr_comma int (ed.(s)); spc(); str "->"; spc();
+    prlist_with_sep pr_comma int (ed.(t))]).
+
+Ltac2 pr_graph_nice (* (pr_v : 'v -> message) *) (pr_e : 'e -> message) 
+  (g : ('v, 'e) Graph) : message := 
+  let orphans := List.map_filter (fun (v, vd) =>
+    if vdata_is_orphan vd then Some v else None) (FMap.bindings (g.(vdata))) in 
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let pr_semicolon () := concats [of_string ";"; break 1 0] in 
+  let hov := hovbox in 
+  let spc () := break 1 0 in
+  let int := of_int in 
+  let str := of_string in 
+  hov 2 (concats [str "!Graph"; spc(); 
+    prlist_with_sep pr_comma int (g.(_inputs)) ; spc(); str "->"; spc();
+    prlist_with_sep pr_comma int (g.(_outputs)); spc(); str ":" ; spc(); 
+
+    prlist_with_sep pr_semicolon (fun (e, ed) => pr_edge_to_parse pr_e e ed)
+      (FMap.bindings (g.(edata)));
+
+    if List.is_empty orphans then spc() else 
+      concats [spc(); str "and"; spc(); prlist_with_sep pr_comma int orphans]]).
+
+Ltac2 pr_int_set (s : int FSet.t) : message :=
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let str := of_string in 
+  let int := of_int in 
+  concats [str "{";
+    prlist_with_sep pr_comma int (FSet.elements s);
+    str "}"
+  ].
+
+Ltac2 pr_int_list (s : int list) : message :=
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let str := of_string in 
+  let int := of_int in 
+  concats [str "[";
+    prlist_with_sep pr_comma int s;
+    str "]"
+  ].
+
+
+Ltac2 pr_vdata (pr_v : 'v -> message) (vd : 'v VData) : message :=
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let hov := hovbox in 
+  let spc () := break 1 0 in
+  let str := of_string in 
+  (* let quote m := concats [str  ] *)
+  hov 2 (concats [str "VData with"; spc(); str "{"; 
+    str "value = "; (* quote *) 
+      (Option.map_default pr_v (str "") (vd.(vvalue))); pr_comma();
+    str "in_edges = "; pr_int_set (vd.(in_edges)); pr_comma();
+    str "out_edges = "; pr_int_set (vd.(out_edges)); pr_comma();
+    str "in_indices = "; pr_int_set (vd.(in_indices)); pr_comma();
+    str "out_indices = "; pr_int_set (vd.(out_indices)); str "}"]).
+
+Ltac2 pr_edata (pr_e : 'e -> message) (ed : 'e EData) : message :=
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let hov := hovbox in 
+  let spc () := break 1 0 in
+  let str := of_string in 
+  (* let quote m := concats [str  ] *)
+  hov 2 (concats [
+  str "EData with"; spc(); str "{"; 
+      str "value = "; (Option.map_default pr_e (str "") (ed.(value))); 
+      pr_comma();
+      str "s = "; pr_int_list (ed.(s)); pr_comma();
+      str "t = "; pr_int_list (ed.(t)); str "}"]).
 
 End GraphPrinting.
 
@@ -376,140 +427,121 @@ Ltac2 outputs : ('v, 'e) Graph -> int list :=
   fun g => g.(_outputs).
 
 
-Ltac2 add_inputs : ('v, 'e) Graph -> int list -> unit :=
+Ltac2 add_inputs : ('v, 'e) Graph -> int list -> ('v, 'e) Graph :=
   fun g inp =>
     let i1 := List.length (g.(_inputs)) in 
     let i2 := Int.add i1 (List.length inp) in
-  g.(_inputs) := List.append (g.(_inputs)) inp;
-  for_each (List.range i1 i2) 
-    (fun i => 
-    let v := List.nth (g.(_inputs)) i in 
-    let vd := vertex_data g v in 
-    vd.(in_indices) := FSet.add i (vd.(in_indices));
-    continue) (fun () => ()).
+  let new_ins := List.append (g.(_inputs)) inp in
+  let new_vdata := FMap.mapi (
+    fun v vd =>
+    {vd with in_indices := 
+      List.fold_right FSet.add
+        (List.filter (fun i => Int.equal (List.nth new_ins i) v) 
+          (List.range i1 i2))
+        (vd.(in_indices))}) (g.(vdata)) in 
+  {g with _inputs := new_ins; vdata := new_vdata}.
 
-Ltac2 add_outputs : ('v, 'e) Graph -> int list -> unit :=
+Ltac2 add_outputs : ('v, 'e) Graph -> int list -> ('v, 'e) Graph :=
   fun g outp =>
     let i1 := List.length (g.(_outputs)) in 
     let i2 := Int.add i1 (List.length outp) in
-  g.(_outputs) := List.append (g.(_outputs)) outp;
-  for_each (List.range i1 i2) 
-    (fun i => 
-    let v := List.nth (g.(_outputs)) i in 
-    let vd := vertex_data g v in 
-    vd.(out_indices) := FSet.add i (vd.(out_indices));
-    continue) (fun () => ()).
+  let new_outs := List.append (g.(_outputs)) outp in
+  let new_vdata := FMap.mapi (
+    fun v vd =>
+    {vd with out_indices := 
+      List.fold_right FSet.add
+        (List.filter (fun i => Int.equal (List.nth new_outs i) v) 
+          (List.range i1 i2))
+        (vd.(out_indices))}) (g.(vdata)) in 
+  {g with _outputs := new_outs; vdata := new_vdata}.
 
-Ltac2 set_inputs : ('v, 'e) Graph -> int list -> unit :=
+Ltac2 set_inputs : ('v, 'e) Graph -> int list -> ('v, 'e) Graph :=
   fun g inp => 
-  g.(_inputs) := inp;
-  FMap.fold (fun _ vd () => 
-      vd.(in_indices) := FSet.empty FSet.Tags.int_tag) 
-    (g.(vdata)) ();
-  List.fold_right (fun (i, v) () => 
-      let vd := vertex_data g v in 
-      vd.(in_indices) := FSet.add i (vd.(in_indices))) 
-    (List.enumerate (g.(_inputs))) ().
+  let new_ins := inp in 
+  let new_vdata := FMap.mapi (fun v vd => 
+    {vd with in_indices := FSet.of_list FSet.Tags.int_tag
+      (List.map_filter (fun (i, v') => if Int.equal v' v then Some i else None) 
+          (List.enumerate new_ins))}
+    ) (g.(vdata)) in 
+  {g with _inputs := new_ins; vdata := new_vdata}.
 
-Ltac2 set_outputs : ('v, 'e) Graph -> int list -> unit :=
+Ltac2 set_outputs : ('v, 'e) Graph -> int list -> ('v, 'e) Graph :=
   fun g outp => 
-  g.(_outputs) := outp;
-  FMap.fold (fun _ vd () => 
-      vd.(out_indices) := FSet.empty FSet.Tags.int_tag) 
-    (g.(vdata)) ();
-  List.fold_right (fun (i, v) () => 
-      let vd := vertex_data g v in 
-      vd.(out_indices) := FSet.add i (vd.(out_indices))) 
-    (List.enumerate (g.(_outputs))) ().
+  let new_outs := outp in 
+  let new_vdata := FMap.mapi (fun v vd => 
+    {vd with out_indices := FSet.of_list FSet.Tags.int_tag
+      (List.map_filter (fun (i, v') => if Int.equal v' v then Some i else None) 
+          (List.enumerate new_outs))}
+    ) (g.(vdata)) in 
+  {g with _outputs := new_outs; vdata := new_vdata}.
 
-Ltac2 add_vertex : ('v, 'e) Graph -> 'v option -> int -> int :=
+Ltac2 add_vertex : ('v, 'e) Graph -> 'v option -> int option -> ('v, 'e) Graph * int :=
   fun g value name => 
   let (v, max_index) := 
-    if Int.equal name (-1) then (g.(_vindex), g.(_vindex)) 
-      else (name, max name (g.(_vindex))) in
-  g.(_vindex) := Int.add max_index 1;
-  g.(vdata) := FMap.add v (mk_vdata value) (g.(vdata));
-  v.
+    Option.map_default (fun name => (name, max name (g.(_vindex))))
+      (g.(_vindex), g.(_vindex)) name in 
+  ({g with _vindex := Int.add max_index 1 ;
+    vdata := FMap.add v (mk_vdata value) (g.(vdata))}, v).
 
-Ltac2 add_edge : ('v, 'e) Graph -> int list -> int list -> 'e option -> int -> int :=
+Ltac2 add_edge : ('v, 'e) Graph -> int list -> int list -> 'e option -> 
+  int option -> ('v, 'e) Graph * int :=
   fun g s t value name => 
   let (e, max_index) := 
-    if Int.equal name (-1) then (g.(_eindex), g.(_eindex)) 
-      else (name, max name (g.(_eindex))) in
-  g.(_eindex) := Int.add max_index 1;
-  g.(edata) := FMap.add e (mk_edata s t value) (g.(edata));
+    Option.map_default (fun name => (name, max name (g.(_eindex))))
+      (g.(_eindex), g.(_eindex)) name in 
+  let new_eindex := Int.add max_index 1 in 
+  let new_edata := FMap.add e (mk_edata s t value) (g.(edata)) in 
+  let new_vdata := FMap.mapi (fun v vd => 
+    {vd with 
+      out_edges := (if List.mem Int.equal v s 
+        then FSet.add e (vd.(out_edges)) else vd.(out_edges));
+      in_edges := if List.mem Int.equal v t
+        then FSet.add e (vd.(in_edges)) else vd.(in_edges)}) (g.(vdata)) in 
+  ({g with _eindex := new_eindex; vdata := new_vdata; 
+    edata := new_edata}, e).
 
-  List.fold_right (fun i () => 
-    let v := vertex_data g i in  
-    v.(out_edges) := FSet.add e (v.(out_edges))) s ();
-  List.fold_right (fun i () => 
-    let v := vertex_data g i in  
-    v.(in_edges) := FSet.add e (v.(in_edges))) t ();
-    
-  (* This _might_ be faster? Depends on the relationship between the sizes of
-     s, t, and the number of vertices of the graph: 
-  FMap.fold 
-    (fun i vd () => 
-      if List.exist (Int.equal i) s then 
-        vd.(out_edges) := FSet.add e (vd.(out_edges))
-        else ();
-      if List.exist (Int.equal i) t then 
-        vd.(in_edges) := FSet.add e (vd.(in_edges))
-        else ()
-        ) (g.(vdata)) (); *)
-  e.
 
-Import Printf.
-
-Ltac2 remove_vertex_strict : ('v, 'e) Graph -> int -> unit :=
+Ltac2 remove_vertex_strict : ('v, 'e) Graph -> int -> ('v, 'e) Graph :=
   fun g i => 
   let v := vertex_data g i in 
   if Bool.or (Int.lt 0 (FSet.cardinal (v.(in_edges))))
     (Int.lt 0 (FSet.cardinal (v.(out_edges)))) then 
     Control.throw 
-      (Invalid_argument (Some (fprintf "%s"
+      (Invalid_argument (Some (Message.of_string
         "Attempting to remove vertex with adjacent edges while strict == True")))
   else 
   if Bool.or 
     (List.exist (Int.equal i) (g.(_inputs)))
     (List.exist (Int.equal i) (g.(_outputs))) then
     Control.throw 
-      (Invalid_argument (Some (fprintf "%s"
+      (Invalid_argument (Some (Message.of_string
         "Attempting to remove boundary vertex while strict == True")))
   else 
-  g.(vdata) := FMap.remove i (g.(vdata)).
+  {g with vdata := FMap.remove i (g.(vdata))}.
 
 
-Ltac2 remove_vertex_nonstrict : ('v, 'e) Graph -> int -> unit :=
+Ltac2 remove_vertex_nonstrict : ('v, 'e) Graph -> int -> ('v, 'e) Graph :=
   fun g v => 
-  let vd := vertex_data g v in 
-  FSet.fold (fun e () => let ed := edge_data g e in 
-      ed.(t) := List.remove Int.equal v (ed.(t)))
-    (vd.(in_edges)) ();
-  FSet.fold (fun e () => let ed := edge_data g e in 
-      ed.(s) := List.remove Int.equal v (ed.(s)))
-    (vd.(out_edges)) ();
-  
-  set_inputs g (List.remove Int.equal v (inputs g));
-  set_outputs g (List.remove Int.equal v (outputs g));
+  let rem_v := List.remove Int.equal v in 
+  set_outputs (set_inputs {g with 
+    vdata := FMap.remove v (g.(vdata));
+    edata := FMap.mapi (fun _e ed => 
+      {ed with s := rem_v (ed.(s)); t := rem_v (ed.(t))}) (g.(edata))} 
+      (rem_v (inputs g))) (rem_v (outputs g)).
 
-  g.(vdata) := FMap.remove v (g.(vdata)).
-
-Ltac2 remove_vertex : ('v, 'e) Graph -> int -> bool -> unit :=
+Ltac2 remove_vertex : ('v, 'e) Graph -> int -> bool -> ('v, 'e) Graph :=
   fun g v strict => 
   if strict then remove_vertex_strict g v else
   remove_vertex_nonstrict g v.
 
-Ltac2 remove_edge : ('v, 'e) Graph -> int -> unit :=
+Ltac2 remove_edge : ('v, 'e) Graph -> int -> ('v, 'e) Graph :=
   fun g e => 
-  let ed := edge_data g e in 
-  List.fold_right (fun v () => 
-    let vd := vertex_data g v in 
-    vd.(out_edges) := FSet.remove e (vd.(out_edges))) (ed.(s)) ();
-  List.fold_right (fun v () => 
-    let vd := vertex_data g v in 
-    vd.(in_edges) := FSet.remove e (vd.(in_edges))) (ed.(t)) ();
-  g.(edata) := FMap.remove e (g.(edata)).
+  {g with 
+    vdata := (let rem_e := FSet.remove e in 
+      FMap.mapi (fun _v vd => 
+        {vd with in_edges := rem_e (vd.(in_edges)); 
+          out_edges := rem_e (vd.(out_edges))}) (g.(vdata)));
+    edata := FMap.remove e (g.(edata))}.
 
 Ltac2 is_input : ('v, 'e) Graph -> int -> bool :=
   fun g v => Bool.neg (FSet.is_empty ((vertex_data g v).(in_indices))).
@@ -541,24 +573,29 @@ Ltac2 successors : ('v, 'e) Graph -> int list -> int FSet.t :=
     go succ current in 
   go (FSet.empty FSet.Tags.int_tag) vs.
 
-Ltac2 merge_vertices (g : ('v, 'e) Graph) (v : int) (w : int) : unit :=
+Ltac2 merge_vertices (g : ('v, 'e) Graph) (v : int) (w : int) : 
+  ('v, 'e) Graph :=
   let vd := vertex_data g v in 
-  let replace_w_v := (fun x => if Int.equal x w then v else x) in 
-  FSet.fold (fun e () => 
-    let ed := edge_data g e in 
-    ed.(t) := List.map replace_w_v (ed.(t));
-    vd.(in_edges) := FSet.add e (vd.(in_edges))
-  ) (in_edges g w) ();
-  FSet.fold (fun e () => 
-    let ed := edge_data g e in 
-    ed.(s) := List.map replace_w_v (ed.(s));
-    vd.(out_edges) := FSet.add e (vd.(out_edges))
-  ) (out_edges g w) ();
-  set_inputs g (List.map replace_w_v (g.(_inputs)));
-  set_outputs g (List.map replace_w_v (g.(_outputs)));
+  let replace_w_v := (fun x => if Int.equal x w then v else x) in
+  let w_in := in_edges g w in 
+  let w_out := out_edges g w in 
+  let new_edata := FMap.mapi (fun e ed => 
+    {ed with 
+      s := (if FSet.mem e w_out 
+        then List.map replace_w_v (ed.(s)) else (ed.(s)));
+      t := (if FSet.mem e w_in 
+        then List.map replace_w_v (ed.(t)) else (ed.(t)))
+      }) (g.(edata)) in 
+  let new_vdata := FMap.add v 
+    {vd with 
+      in_edges := FSet.union (vd.(in_edges)) w_in;
+      out_edges := FSet.union (vd.(out_edges)) w_out} (g.(vdata)) in 
+  let g := {g with edata := new_edata; vdata := new_vdata} in 
+  let g := set_inputs g (List.map replace_w_v (g.(_inputs))) in 
+  let g := set_outputs g (List.map replace_w_v (g.(_outputs))) in
   remove_vertex_nonstrict g w.
 
-Ltac2 explode_vertex : ('v, 'e) Graph -> int -> int list * int list :=
+(* Ltac2 explode_vertex : ('v, 'e) Graph -> int -> int list * int list * ('v, 'e) Graph :=
   fun g v => 
   let new_vs : int list ref * int list ref := (Ref.ref [], Ref.ref []) in 
   let vd := vertex_data g v in 
@@ -604,9 +641,9 @@ Ltac2 explode_vertex : ('v, 'e) Graph -> int -> int list * int list :=
 
   remove_vertex_strict g v;
 
-  (Ref.get (fst new_vs), Ref.get (snd new_vs)).
+  (Ref.get (fst new_vs), Ref.get (snd new_vs)). *)
 
-Ltac2 insert_id_after (g : ('v, 'e) Graph) (v : int) (reverse : bool) : int := 
+(* Ltac2 insert_id_after (g : ('v, 'e) Graph) (v : int) (reverse : bool) : int := 
   let vd := vertex_data g v in 
   let w := add_vertex g (vvalue vd) (-1) in 
   let wd := vertex_data g w in 
@@ -623,27 +660,30 @@ Ltac2 insert_id_after (g : ('v, 'e) Graph) (v : int) (reverse : bool) : int :=
 
   let (s, t) := if reverse then ([w], [v]) else ([v], [w]) in 
   let e := add_edge g s t None (-1) in 
-  e.
+  e. *)
 
 Ltac2 tensor (g : ('v, 'e) Graph) (other : ('v, 'e) Graph) :=
-  let vmap : (int, int) FMap.t := 
-    List.fold_right (fun v vmap => 
+  let (g, vmap) (* : (int, int) FMap.t *) := 
+    List.fold_right (fun v (g, vmap) => 
       let vd := vertex_data other v in 
-      FMap.add v (add_vertex g (vvalue vd) -1) vmap
-      ) (vertices other) (FMap.empty FSet.Tags.int_tag) in
+      let (g, v') := (add_vertex g (vvalue vd) (Some -1)) in 
+      (g, FMap.add v v' vmap)
+      ) (vertices other) (g, FMap.empty FSet.Tags.int_tag) in
     
-  List.fold_right (fun e () => 
+  let g := List.fold_right (fun e g => 
     let ed := edge_data other e in 
-    let _ := add_edge g (List.map (FMap.lookup vmap) (ed.(s)))
-      (List.map (FMap.lookup vmap) (ed.(t))) (ed.(value)) (-1) in 
-    ()
-    ) (edges other) ();
+    fst (add_edge g (List.map (FMap.lookup vmap) (ed.(s)))
+      (List.map (FMap.lookup vmap) (ed.(t))) (ed.(value)) (Some -1))
+    ) (edges other) g in 
   
-  add_inputs g (List.map (FMap.lookup vmap) (inputs other));
+  let g := add_inputs g (List.map (FMap.lookup vmap) (inputs other)) in 
   add_outputs g (List.map (FMap.lookup vmap) (outputs other)).
 
 (* TODO: Copy functions... *)
 
+Import Printf.
+
+(* 
 Ltac2 compose (g : ('v, 'e) Graph) (other : ('v, 'e) Graph) :=
   let self_outputs := outputs g in 
   let other_inputs := inputs other in 
@@ -699,9 +739,9 @@ Ltac2 compose (g : ('v, 'e) Graph) (other : ('v, 'e) Graph) :=
         merge_vertices g p1 p2;
         FMap.add p2 p1 quotient
       else quotient) plug1 plug2 (FMap.empty FSet.Tags.int_tag) in 
-  ().
+  (). *)
 
-Ltac2 domain (g : ('v, 'e) Graph) : unit list :=
+(* Ltac2 domain (g : ('v, 'e) Graph) : unit list :=
   List.map (fun _ => ()) (inputs g).
 
 Ltac2 codomain (g : ('v, 'e) Graph) : unit list :=
@@ -711,18 +751,13 @@ Ltac2 edge_domain (g : ('v, 'e) Graph) (edge_id : int) : unit list :=
   List.map (fun _ => ()) (source g edge_id).
 
 Ltac2 edge_codomain (g : ('v, 'e) Graph) (edge_id : int) : unit list :=
-  List.map (fun _ => ()) (target g edge_id).
-
-
-
-(* Ltac2 domain : ... *)
-(* Ltac2 codomain : ... *)
-(* Ltac2 edge_domain : ... *)
-(* Ltac2 edge_codomain : ... *)
+  List.map (fun _ => ()) (target g edge_id). *)
 
 
 
 
+
+(* 
 
 Ltac2 gen (value : 'e option) (domain : unit list) (codomain : unit list) : 
   ('v, 'e) Graph :=
@@ -732,9 +767,9 @@ Ltac2 gen (value : 'e option) (domain : unit list) (codomain : unit list) :
   let _ := add_edge g inputs outputs value (-1) in 
   set_inputs g inputs;
   set_outputs g outputs;
-  g.
+  g. *)
   
-Ltac2 perm (p : int list) (domain : unit list) : ('a, 'b) Graph := 
+(* Ltac2 perm (p : int list) (domain : unit list) : ('a, 'b) Graph := 
   let g := mk_graph () in 
   let num_wires := List.length p in 
   if Bool.neg (Int.equal (List.length domain) num_wires) then 
@@ -747,15 +782,15 @@ Ltac2 perm (p : int list) (domain : unit list) : ('a, 'b) Graph :=
     (List.range 0 num_wires) in 
   set_inputs g inputs;
   set_outputs g outputs;
-  g.
+  g. *)
 
-Ltac2 identity : unit -> ('v, 'e) Graph :=
+(* Ltac2 identity : unit -> ('v, 'e) Graph :=
   fun () => 
   let g := mk_graph () in 
   let v := add_vertex g None (-1) in 
   set_inputs g [v];
   set_outputs g [v];
-  g.
+  g. *)
 
 (* TODO: Redistributer *)
 
@@ -780,11 +815,23 @@ Ltac2 Type ('v, 'e) Match := {
   domain : ('v, 'e) Graph;
   codomain : ('v, 'e) Graph;
   edge_eq : 'e -> 'e -> bool;
-  mutable vertex_map : (int, int) FMap.t;
-  mutable vertex_image : int FSet.t;
-  mutable edge_map : (int, int) FMap.t;
-  mutable edge_image : int FSet.t;
+  vertex_map : (int, int) FMap.t;
+  vertex_image : int FSet.t;
+  edge_map : (int, int) FMap.t;
+  edge_image : int FSet.t;
 }.
+
+Ltac2 match_equal (v_eq : 'v -> 'v -> bool) (e_eq : 'e -> 'e -> bool) : 
+  ('v, 'e) Match -> ('v, 'e) Match -> bool :=
+  fun m m' => 
+  List.fold_right Bool.and [
+    graph_equal v_eq e_eq (m.(domain)) (m'.(domain));
+    graph_equal v_eq e_eq (m.(codomain)) (m'.(codomain));
+    map_equal Int.equal (m.(vertex_map)) (m'.(vertex_map));
+    map_equal Int.equal (m.(edge_map)) (m'.(edge_map));
+    FSet.equal (m.(vertex_image)) (m'.(vertex_image));
+    FSet.equal (m.(edge_image)) (m'.(edge_image))
+  ] true.
 
 Ltac2 mk_match (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) 
   (edge_eq : 'e -> 'e -> bool) : ('v, 'e) Match := {
@@ -795,6 +842,17 @@ Ltac2 mk_match (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph)
   vertex_image := FSet.empty FSet.Tags.int_tag;
   edge_map := FMap.empty FSet.Tags.int_tag;
   edge_image := FSet.empty FSet.Tags.int_tag
+}.
+
+Ltac2 mk_match_from (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) 
+  (edge_eq : 'e -> 'e -> bool) vm vi em ei : ('v, 'e) Match := {
+  domain := domain;
+  codomain := codomain;
+  edge_eq := edge_eq;
+  vertex_map := vm;
+  vertex_image := vi;
+  edge_map := em;
+  edge_image := ei;
 }.
 
 Ltac2 mcopy_deep (m : ('v, 'e) Match) : ('v, 'e) Match := {
@@ -843,15 +901,21 @@ Ltac2 print_match_full (pr_v : 'v -> message)
 
 End Printing.
 
-Ltac2 try_add_vertex (m : ('v, 'e) Match) (domain_vertex : int) 
-  (codomain_vertex : int) : bool :=
-  match_log (fprintf "Trying to add vertex %i -> %i to match:" 
-    domain_vertex codomain_vertex);
+Ltac2 try_add_vertex (v_eq : 'v -> 'v -> bool) 
+  (m : ('v, 'e) Match) (domain_vertex : int) 
+  (codomain_vertex : int) : ('v, 'e) Match option :=
+  let _brks (l : message list) : message := 
+    GraphPrinting.prlist_with_sep (fun () => Message.break 1 2) (fun x => x) l in 
+  let mapstr := Message.to_string (fprintf "%i -> %i" domain_vertex codomain_vertex) in 
+  match_log (fprintf "Trying to add vertex %s to match:" mapstr);
   
-  if FSet.mem domain_vertex (FMap.domain (m.(vertex_map))) then 
-    match_log (fprintf "Vertex already mapped to %i"
-      (FMap.lookup (m.(vertex_map)) domain_vertex));
-    Int.equal (FMap.lookup (m.(vertex_map)) domain_vertex) codomain_vertex else
+  let b := if FSet.mem domain_vertex (FMap.domain (m.(vertex_map))) then 
+    match_log (fprintf "Mapping %s failed; vertex already mapped to %i"
+      mapstr (Option.default (-1) (FMap.find_opt domain_vertex (m.(vertex_map)))));
+    Int.equal (FMap.lookup (m.(vertex_map)) domain_vertex) codomain_vertex
+    else true in 
+  if Bool.neg b then None else
+
   
   (* check types... *)
 
@@ -859,64 +923,69 @@ Ltac2 try_add_vertex (m : ('v, 'e) Match) (domain_vertex : int)
 
   if Bool.and (is_boundary (m.(codomain)) codomain_vertex) 
     (Bool.neg (is_boundary (m.(domain)) domain_vertex)) then 
-    match_log (fprintf "Vertex faile: codomain vertex is boundary but domain vertex is not.");
-    false else
+    match_log (fprintf "Vertex %s failed: codomain vertex is boundary but domain vertex is not." mapstr);
+    None else
   
   let b := if FSet.mem codomain_vertex (m.(vertex_image)) then 
     if Bool.neg (is_boundary (m.(domain)) domain_vertex) then 
-      match_log (fprintf "Vertex failed: non-injective on interior vertex.");
+      match_log (fprintf "Vertex %s failed: non-injective on interior vertex." mapstr);
       false else
     
     FMap.fold (fun mapped_vertex image_vertex b => 
       if Bool.and (Int.equal image_vertex codomain_vertex)
         (Bool.neg (is_boundary (m.(domain)) mapped_vertex)) then 
-        match_log (fprintf "Vertex failed: non-injective on interior vertex.");
+        match_log (fprintf "Vertex %s failed: non-injective on interior vertex." mapstr);
         false else b) (m.(vertex_map)) true else true in 
-  if Bool.neg b then false else
+  if Bool.neg b then None else
 
   let b := if Bool.neg (is_boundary (m.(domain)) domain_vertex) then 
     if Bool.neg 
       (Int.equal (FSet.cardinal (in_edges (m.(domain)) domain_vertex))
         (FSet.cardinal (in_edges (m.(codomain)) codomain_vertex))) then 
-      match_log (fprintf "Vertex failed: in_edges cannot satisfy gluing conditions.");
+      match_log (fprintf "Vertex %s failed: in_edges cannot satisfy gluing conditions." mapstr);
       false else
     if Bool.neg 
       (Int.equal (FSet.cardinal (out_edges (m.(domain)) domain_vertex))
         (FSet.cardinal (out_edges (m.(codomain)) codomain_vertex))) then 
-      match_log (fprintf "Vertex failed: out_edges cannot satisfy gluing conditions.");
+      match_log (fprintf "Vertex %s failed: out_edges cannot satisfy gluing conditions." mapstr);
       false else
     true else true in 
-  if Bool.neg b then false else 
+  if Bool.neg b then None else 
+  let dvalue := (vertex_data (m.(domain)) domain_vertex).(vvalue) in
+  let cdvalue := (vertex_data (m.(codomain)) codomain_vertex).(vvalue) in
+  if Bool.neg (Option.equal v_eq dvalue cdvalue) then 
+    match_log (fprintf "Vertex %s failed: values did not match; discarding." mapstr); None else 
+  (match_log (fprintf "Vertex %s success." mapstr);
+  Some {m with 
+    vertex_map := FMap.add domain_vertex codomain_vertex (m.(vertex_map));
+    vertex_image := FSet.add codomain_vertex (m.(vertex_image))}).
 
-  (m.(vertex_map) := FMap.add domain_vertex codomain_vertex (m.(vertex_map));
-  m.(vertex_image) := FSet.add codomain_vertex (m.(vertex_image));
 
-  match_log (fprintf "Vertex success.");
-  true).
-
-Ltac2 try_add_edge (m : ('v, 'e) Match) 
-  (domain_edge : int) (codomain_edge : int) : bool :=
-  match_log (fprintf "Trying to add edge %i -> %i to match:" 
-    domain_edge codomain_edge);
+Ltac2 try_add_edge (v_eq : 'v -> 'v -> bool) (m : ('v, 'e) Match) 
+  (domain_edge : int) (codomain_edge : int) : ('v, 'e) Match option :=
+  let brks (l : message list) : message := 
+    GraphPrinting.prlist_with_sep (fun () => Message.break 1 2) (fun x => x) l in 
+  let mapstr := Message.to_string (fprintf "%i -> %i" domain_edge codomain_edge) in 
+  match_log (fprintf "Trying to add edge %s to match:" mapstr);
   
   let domain_value := (edge_data (m.(domain)) domain_edge).(value) in 
   let codomain_value := (edge_data (m.(codomain)) codomain_edge).(value) in 
 
   if Bool.neg (Option.equal (m.(edge_eq)) domain_value codomain_value) then 
-    match_log (fprintf "Edge failed: values not equal");
-    false else
+    match_log (fprintf "Edge %s failed: values not equal" mapstr);
+    None else
   
   if FSet.mem codomain_edge (m.(edge_image)) then 
-    match_log (fprintf "Edge failed: the map would become non-injective.");
-    false else
+    match_log (fprintf "Edge %s failed: the map would become non-injective." mapstr);
+    None else
 
-  let preimg_edge_domain := edge_domain (m.(domain)) domain_edge in 
+  (* let preimg_edge_domain := edge_domain (m.(domain)) domain_edge in 
   let image_edge_domain := edge_domain (m.(codomain)) codomain_edge in 
 
   if Bool.neg (List.equal (fun () () => true) 
     preimg_edge_domain image_edge_domain) then 
     match_log (fprintf "edge domain does not match image domain");
-    false else 
+    None else 
   
   let preimg_edge_codomain := edge_codomain (m.(domain)) domain_edge in 
   let image_edge_codomain := edge_codomain (m.(codomain)) codomain_edge in 
@@ -924,7 +993,7 @@ Ltac2 try_add_edge (m : ('v, 'e) Match)
   if Bool.neg (List.equal (fun () () => true) 
     preimg_edge_codomain image_edge_codomain) then 
     match_log (fprintf "edge codomain does not match image codomain");
-    false else 
+    None else  *)
 
   let domain_sources := source (m.(domain)) domain_edge in 
   let codomain_sources := source (m.(codomain)) codomain_edge in 
@@ -934,25 +1003,35 @@ Ltac2 try_add_edge (m : ('v, 'e) Match)
     (List.append domain_sources domain_targets) 
     (List.append codomain_sources codomain_targets) in 
   
-  let b := List.fold_right (fun (domain_vertex, codomain_vertex) b => 
-    if Bool.and (FSet.mem domain_vertex (FMap.domain (m.(vertex_map))))
-      (Bool.neg (Int.equal (FMap.lookup (m.(vertex_map)) domain_vertex) 
-        codomain_vertex)) then 
-        match_log (fprintf "Edge failed: inconsistent with previously mapped vertex.");
-        false
-    else 
-      if Bool.neg (try_add_vertex m domain_vertex codomain_vertex) then 
-        match_log (fprintf "Edge failed: couldn't add a source or target vertex");
-        false
-      else b)
-    vertices_to_check true in 
-  if Bool.neg b then false else 
-
-  (m.(edge_map) := FMap.add domain_edge codomain_edge (m.(edge_map));
-  m.(edge_image) := FSet.add codomain_edge (m.(edge_image));
-
-  match_log (fprintf "Edge success.");
-  true).
+  let m := List.fold_right (fun (domain_vertex, codomain_vertex) m => 
+    Option.bind m (fun m =>
+    if FSet.mem domain_vertex (FMap.domain (m.(vertex_map))) then
+      if (Bool.neg (Option.equal Int.equal 
+        (FMap.find_opt domain_vertex (m.(vertex_map))) 
+        (Some codomain_vertex))) then 
+        match_log (brks [fprintf "Edge %s failed:" mapstr;
+        fprintf "maps vertices %i -> %i" domain_vertex codomain_vertex; 
+        fprintf "inconsistent with previously";
+        fprintf "mapped vertex (%i -> %i)." domain_vertex 
+          (Option.default (-1) (FMap.find_opt domain_vertex (m.(vertex_map))))]);
+        None
+      else 
+        (match_log (fprintf "Vertex map %i -> %i accepted; already included"
+          domain_vertex codomain_vertex);
+        Some m)
+    else
+      let m := try_add_vertex v_eq m domain_vertex codomain_vertex in 
+      match m with 
+      | None => match_log (brks [fprintf "Edge %s failed:" mapstr; 
+        fprintf "couldn't add a source or target vertex"]);
+          None
+      | _ => m
+      end))
+    vertices_to_check (Some m) in 
+  Option.bind m (fun m =>
+  (match_log (fprintf "Edge %s success." mapstr);
+  Some {m with edge_map := FMap.add domain_edge codomain_edge (m.(edge_map));
+    edge_image := FSet.add codomain_edge (m.(edge_image))})).
 
 Ltac2 domain_neighborhood_mapped (m : ('v, 'e) Match) (vertex : int) : bool :=
   Bool.and (* TODO: Is FSet.union faster?*)
@@ -966,14 +1045,14 @@ Ltac2 domain_neighborhood_mapped (m : ('v, 'e) Match) (vertex : int) : bool :=
     (if b then "true" else "false"));
   if b then Int.add v 1 else v) 0 (List.enumerate [true; true; false; false]). *)
 
-Ltac2 map_scalars (m : ('v, 'e) Match) : bool :=
+Ltac2 map_scalars (m : ('v, 'e) Match) : ('v, 'e) Match option :=
   (* TODO: Make a function? *)
-  let codomain_scalars := Ref.ref (List.map_filter 
+  let codomain_scalars := List.map_filter 
     (fun e => let ed := edge_data (m.(codomain)) e in 
       if Bool.and (Int.equal (List.length (ed.(s))) 0) 
           (Int.equal (List.length (ed.(t))) 0) then 
       Some (e, ed.(value)) else None)
-    (edges (m.(codomain)))) in
+    (edges (m.(codomain))) in
   
   let domain_scalars := List.filter 
     (fun e => let ed := edge_data (m.(domain)) e in 
@@ -981,84 +1060,63 @@ Ltac2 map_scalars (m : ('v, 'e) Match) : bool :=
         (Int.equal (List.length (ed.(t))) 0)) 
     (edges (m.(domain))) in
   
-  for_each domain_scalars (fun e => 
+  let may_m_cs := List.fold_right (fun e m => Option.bind m (fun (m, codomain_scalars) =>  
     match_log (fprintf "Trying to map scalar edge %i" e);
     let ed := edge_data (m.(domain)) e in
-    let found_match := 
-      for_each (List.enumerate (Ref.get codomain_scalars))
-        (fun (i, (codomain_scalar, value)) => 
-          if Option.equal (m.(edge_eq)) value (ed.(value)) then 
-            m.(edge_map) := FMap.add e codomain_scalar (m.(edge_map));
-            m.(edge_image) := FSet.add codomain_scalar (m.(edge_image));
-            Ref.update codomain_scalars (fun cs => 
-              List.append (List.firstn i cs) (List.skipn (Int.add i 1) cs));
-            match_log (fprintf "Successfully mapped scalar %i -> %i" 
-              e codomain_scalar);
-            for_return true
-          else
-            continue) (fun () => false) in 
-    if Bool.neg found_match then 
+    let may_scalar := List.find_opt 
+      (fun (_, (_, value)) => Option.equal (m.(edge_eq)) value (ed.(value)))
+      (List.enumerate codomain_scalars) in 
+    match may_scalar with 
+    | Some (i, (codomain_scalar, _value)) => 
+      match_log (fprintf "Successfully mapped scalar %i -> %i" 
+        e codomain_scalar);
+      Some ({m with 
+        edge_map := FMap.add e codomain_scalar (m.(edge_map));
+        edge_image := FSet.add codomain_scalar (m.(edge_image))}, 
+        List.append (List.firstn i codomain_scalars) 
+        (List.skipn (Int.add i 1) codomain_scalars))
+    | None => 
       match_log (fprintf "Match failed: could not map scalar edge %i." e);
-      for_return false
-    else
-      continue
-    ) (fun () => true).
+      None
+    end)) domain_scalars (Some (m, codomain_scalars)) in 
+  Option.map fst may_m_cs.
 
-Ltac2 more (m : ('v, 'e) Match) : ('v, 'e) Match list :=
-  let extended_matches : ('v, 'e) Match list ref := Ref.ref [] in 
-  for_each (FSet.elements (FMap.domain (m.(vertex_map)))) (* TODO: Test performance of this versus FMap.elements *)
-    (fun domain_vertex => 
-    if domain_neighborhood_mapped m domain_vertex then 
-      continue else
-    let codomain_vertex := (* TODO: See above; performance would definitely be better with elements *)
-      FMap.lookup (m.(vertex_map)) domain_vertex in 
-    for_each (FSet.elements (in_edges (m.(domain)) domain_vertex)) 
-      (fun edge =>
-      if FSet.mem edge (FMap.domain (m.(edge_map))) then 
-        continue else
-        
-      (for_each (FSet.elements (in_edges (m.(codomain)) codomain_vertex))
-        (fun codomain_edge => 
-        let potential_new_match := mcopy m in 
-        if try_add_edge potential_new_match edge codomain_edge then 
-          Ref.update extended_matches 
-            (fun em => List.cons potential_new_match em);
-          continue
-        else continue) (fun () => ());
-      for_return (for_return (Ref.get extended_matches)))) (* return out of two nested for loops *)
-    (fun () => (* no in_edges matched; try out_edges *)
-      for_each (FSet.elements (in_edges (m.(domain)) domain_vertex)) 
-      (fun edge =>
-      if FSet.mem edge (FMap.domain (m.(edge_map))) then 
-        continue else
-        
-      (for_each (FSet.elements (in_edges (m.(codomain)) codomain_vertex))
-        (fun codomain_edge => 
-        let potential_new_match := mcopy m in 
-        if try_add_edge potential_new_match edge codomain_edge then 
-          Ref.update extended_matches 
-            (fun em => List.cons potential_new_match em);
-          continue
-        else continue) (fun () => ());
-      for_return (for_return (Ref.get extended_matches)))) (* return out of two nested for loops *)
-      (fun () => (* no out_edges matched either; we've got nothing *) continue)
-    )) (fun () => (* no edge extensions; try non-domain vertices *)
-    for_each (vertices (m.(domain)))
-    (fun domain_vertex => 
-      if FSet.mem domain_vertex (FMap.domain (m.(vertex_map))) then 
-        continue else (
-      
-      for_each (vertices (m.(codomain))) 
-      (fun codomain_vertex => 
-        let potential_new_match := mcopy m in 
-        if try_add_vertex potential_new_match domain_vertex codomain_vertex then 
-          Ref.update extended_matches 
-            (fun em => List.cons potential_new_match em);
-          continue
-        else continue) (fun () => ());
-      for_return (Ref.get extended_matches))
-    ) (fun () => (* no vertex extensions either; we've got nothing *) [])
-  ).
+Ltac2 more (v_eq : 'v -> 'v -> bool) (m : ('v, 'e) Match) : ('v, 'e) Match list :=
+  (* TODO: Improve performance (with List.fold_right) to shortcut 
+    tries after we find something working *)
+  let more_in_edges := List.find_opt (fun l => Bool.neg (List.is_empty l)) 
+    (List.map (fun (domain_vertex, codomain_vertex) => 
+      if domain_neighborhood_mapped m domain_vertex then [] else
+      List.flat_map (fun edge => 
+        if FMap.mem edge (m.(edge_map)) then [] else
+        List.map_filter (fun codomain_edge => 
+          try_add_edge v_eq m edge codomain_edge)
+          (FSet.elements (in_edges (m.(codomain)) codomain_vertex))
+        )
+        (FSet.elements (in_edges (m.(domain)) domain_vertex)))
+    (FMap.bindings (m.(vertex_map)))) in 
+  match more_in_edges with | Some l => l | None => 
+  let more_out_edges := List.find_opt (fun l => Bool.neg (List.is_empty l)) 
+    (List.map (fun (domain_vertex, codomain_vertex) => 
+      if domain_neighborhood_mapped m domain_vertex then [] else
+      List.flat_map (fun edge => 
+        if FMap.mem edge (m.(edge_map)) then [] else
+        List.map_filter (fun codomain_edge => 
+          try_add_edge v_eq m edge codomain_edge)
+          (FSet.elements (out_edges (m.(codomain)) codomain_vertex))
+        )
+        (FSet.elements (out_edges (m.(domain)) domain_vertex)))
+    (FMap.bindings (m.(vertex_map)))) in  
+  match more_out_edges with | Some l => l | None => 
+  let more_verts := List.find_opt (fun l => Bool.neg (List.is_empty l))
+    (List.map (fun domain_vertex => 
+      if FMap.mem domain_vertex (m.(vertex_map)) then [] else
+      List.map_filter (fun codomain_vertex => 
+        try_add_vertex v_eq m domain_vertex codomain_vertex)
+        (vertices (m.(codomain)))
+      ) (vertices (m.(domain)))) in 
+  Option.default [] more_verts
+  end end.
 
 Ltac2 is_total (m : ('v, 'e) Match) : bool :=
   Bool.and 
@@ -1097,7 +1155,7 @@ Ltac2 is_convex (m : ('v, 'e) Match) : bool :=
 Ltac2 Type ('v, 'e) Matches := {
   convex : bool;
   initial_match : ('v, 'e) Match;
-  mutable match_stack : ('v, 'e) Match list
+  match_stack : ('v, 'e) Match list
 }.
 
 Ltac2 mk_matches (edge_eq : 'e -> 'e -> bool)
@@ -1109,43 +1167,67 @@ Ltac2 mk_matches (edge_eq : 'e -> 'e -> bool)
     end in {
   convex := convex;
   initial_match := initial_match;
-  match_stack := if map_scalars initial_match then 
-    [initial_match] else []
+  match_stack := match map_scalars initial_match with 
+    | Some m => [m]
+    | None => []
+    end
 }.
 
-Ltac2 rec next_match (ms : ('v, 'e) Matches) : 
-  ('v, 'e) Match option :=
+Ltac2 mk_matches_from_stack
+  (ms : ('v, 'e) Match list) : ('v, 'e) Matches option :=
+  match ms with 
+  | [] => None
+  | m::ms' => Some {
+    convex := false;
+    initial_match := m;
+    match_stack := (m::ms');
+    }
+  end.
+
+Ltac2 rec next_match (v_eq : 'v -> 'v -> bool) (ms : ('v, 'e) Matches) : 
+  (('v, 'e) Match * ('v, 'e) Matches) option :=
   if List.is_empty (ms.(match_stack)) then None else
   let m := List.hd (ms.(match_stack)) in 
-  ms.(match_stack) := List.tl (ms.(match_stack));
+  let ms := {ms with match_stack := List.tl (ms.(match_stack))} in
   if is_total m then 
     match_log (fprintf "got successful match:\n {str(m)}");
     if ms.(convex) then 
       if is_convex m then 
         match_log (fprintf "match is convex, returning");
-        Some m
+        Some (m, ms)
       else
         (match_log (fprintf "match is not convex, dropping");
-        next_match ms)
+        next_match v_eq ms)
     else
-      Some m
+      Some (m, ms)
   else
-    (ms.(match_stack) := List.append (ms.(match_stack)) (more m);
-    next_match ms).
+    next_match v_eq {ms with 
+      match_stack := List.append (ms.(match_stack)) (more v_eq m)}.
 
 (* Return the iterable of [Match]es of a [Matches] as a backtracking value *)
-Ltac2 rec get_match (ms : ('v, 'e) Matches) : ('v, 'e) Match :=
-  match next_match ms with 
+Ltac2 rec get_match (v_eq : 'v -> 'v -> bool) (ms : ('v, 'e) Matches) : ('v, 'e) Match :=
+  match next_match v_eq ms with 
   | None => Control.zero (Invalid_argument (Some (fprintf "No more matches")))
-  | Some m => Control.plus (fun () => m) (fun _ => get_match ms)
+  | Some (m, ms') => Control.plus (fun () => m) (fun _ => get_match v_eq ms')
   end.
 
 (* Return the iterable of [Match]es of a [Matches] as a list *)
-Ltac2 rec get_matches
+Ltac2 rec get_matches (v_eq : 'v -> 'v -> bool) 
   (ms : ('v, 'e) Matches) : ('v, 'e) Match list :=
-  match next_match ms with 
+  match next_match v_eq ms with 
   | None => []
-  | Some m => List.cons m (get_matches ms)
+  | Some (m, ms') => List.cons m (get_matches v_eq ms')
   end.
 
-  
+Ltac2 match_graph (v_eq : 'v -> 'v -> bool ) (edge_eq : 'e -> 'e -> bool) 
+  (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) : ('v, 'e) Match list :=
+  get_matches v_eq (mk_matches edge_eq domain codomain None false).
+
+Ltac2 find_iso (v_eq : 'v -> 'v -> bool) (edge_eq : 'e -> 'e -> bool) 
+  (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) : ('v, 'e) Match option :=
+  if Bool.neg (Bool.and 
+    (Int.equal (num_vertices domain) (num_vertices codomain))
+    (Int.equal (num_edges domain) (num_edges codomain))) then None else
+  List.find_opt is_surjective (match_graph v_eq edge_eq domain codomain).
+
+

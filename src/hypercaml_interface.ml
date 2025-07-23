@@ -83,12 +83,14 @@ let () = define "vdata_make_from"
   value = value;
 }
 
-let () = define "vdata_equal" (vdata @-> vdata @-> ret bool) @@ fun u v -> 
-   NSet.equal u.in_edges v.in_edges &&
-   NSet.equal u.out_edges v.out_edges &&
-   NSet.equal u.in_indices v.in_indices &&
-   NSet.equal u.out_indices v.out_indices &&
-   String.equal u.value v.value
+let vdata_equal (vd : Graph.vdata) (vd' : Graph.vdata) : bool = 
+   NSet.equal vd.in_edges vd'.in_edges &&
+   NSet.equal vd.out_edges vd'.out_edges &&
+   NSet.equal vd.in_indices vd'.in_indices &&
+   NSet.equal vd.out_indices vd'.out_indices &&
+   String.equal vd.value vd'.value
+
+let () = define "vdata_equal" (vdata @-> vdata @-> ret bool) @@ vdata_equal
 
 let () = define "vdata_in_edges" (vdata @-> ret set_repr) @@ fun v -> 
    tag_int_set v.in_edges
@@ -116,17 +118,18 @@ let () = define "edata_make_from"
    (list int @-> list int @-> string @-> ret edata) @@ 
    fun s t value -> Graph.make_edata ~s:s ~t:t ~value:value ()
 
-let () = define "edata_equal" (edata @-> edata @-> ret bool) @@ fun e d -> 
-   List.equal Int.equal e.s d.s &&
-   List.equal Int.equal e.t d.t &&
-   String.equal e.value d.value
+let edata_equal (ed : Graph.edata) (ed' : Graph.edata) : bool = 
+   List.equal Int.equal ed.s ed'.s &&
+   List.equal Int.equal ed.t ed'.t &&
+   String.equal ed.value ed'.value
+
+let () = define "edata_equal" (edata @-> edata @-> ret bool) @@ edata_equal
 
 let () = define "edata_source" (edata @-> ret (list int)) @@ fun e -> e.s
 
 let () = define "edata_target" (edata @-> ret (list int)) @@ fun e -> e.t
 
-let () = define "edata_value" (vdata @-> ret string) @@ fun e -> e.value
-
+let () = define "edata_value" (edata @-> ret string) @@ fun e -> e.value
 
 let val_graph = Tac2dyn.Val.create (plugin_name^":graph")
 let graph = repr_ext val_graph
@@ -144,6 +147,14 @@ let () = define "graph_make_from"
       eindex = eindex;
    }
 
+let graph_equal (g : Graph.t) (g' : Graph.t) : bool = 
+   Graph.NMap.equal vdata_equal g.vdata g'.vdata &&
+   Graph.NMap.equal edata_equal g.edata g'.edata &&
+   List.equal Int.equal g.inputs g'.inputs && 
+   List.equal Int.equal g.outputs g'.outputs
+
+let () = define "graph_equal" (graph @-> graph @-> ret bool) @@ graph_equal
+
 let () = define "graph_vdata" (graph @-> ret map_repr) @@ 
    fun g -> tag_int_map vdata g.vdata
 let () = define "graph_edata" (graph @-> ret map_repr) @@ 
@@ -153,6 +164,7 @@ let () = define "graph_outputs" (graph @-> ret (list int)) @@ fun g -> g.outputs
 let () = define "graph_vindex" (graph @-> ret int) @@ fun g -> g.vindex
 let () = define "graph_eindex" (graph @-> ret int) @@ fun g -> g.eindex
 
+let () = define "graph_string_of_edata" (edata @-> ret string) @@ Graph.string_of_edata
 
 
 let () = define "graph_vertices" (graph @-> ret (list int)) @@ Graph.vertices
@@ -229,6 +241,17 @@ let () = define "match_make_from" (graph @-> graph @->
       edge_image = untag_int_set edge_image;
    }
 
+let match_equal (m : Match.t) (m' : Match.t) : bool = 
+   let open Match in 
+   graph_equal m.domain m'.domain &&
+   graph_equal m.codomain m'.codomain &&
+   NMap.equal Int.equal m.vertex_map m'.vertex_map &&
+   NSet.equal m.vertex_image m'.vertex_image &&
+   NMap.equal Int.equal m.edge_map m'.edge_map &&
+   NSet.equal m.edge_image m'.edge_image
+
+let () = define "match_equal" (match_t @-> match_t @-> ret bool) @@ match_equal
+
 let () = define "match_domain" (match_t @-> ret graph) @@
    fun m -> m.domain
 let () = define "match_codomain" (match_t @-> ret graph) @@
@@ -290,6 +313,10 @@ let () = define "match_match_graph"
    fun domain codomain -> 
       (Match.match_graph domain codomain).match_stack
 
+let () = define "match_count" 
+   (list match_t @-> ret int) @@ fun ms -> 
+   Match.count {match_stack = ms}
+
 let () = define "match_find_iso" 
    (graph @-> graph @-> ret (option match_t)) @@ 
    Match.find_iso
@@ -334,17 +361,69 @@ let pr_edata (ed : Graph.edata) =
       str "s = " ++ prlist_with_brackets int ed.s ++ pr_comma() ++
       str "t = " ++ prlist_with_brackets int ed.t ++ str "}"
    
+
+let pr_edata_nice (ed : Graph.edata) = 
+   let open Pp in 
+   hov 2 @@ quote (str ed.value) ++ spc() ++ str "(" ++
+      (h @@ prlist_with_brackets int ed.s ++ spc() ++ str "->" 
+         ++ spc() ++ prlist_with_brackets int ed.t) ++ str ")"
+
+let pr_edge_to_parse (e : int) (ed : Graph.edata) = 
+   let open Pp in 
+   hov 2 @@ str ed.value ++ spc() ++ 
+      str "(" ++ int e ++ str ")" ++ spc() ++ pr_colon() ++
+      prlist_with_sep pr_comma int ed.s ++ spc() ++ str "->" ++ spc() ++
+      prlist_with_sep pr_comma int ed.t
+
 let pr_graph (g : Graph.t) = 
    let open Pp in 
    v 2 @@ str "Graph with" ++ spc() ++
       (v 2 @@ str "Vertices:" ++ spc () ++ 
-         pr_int_map (fun (vd : Graph.vdata) -> quote (str vd.value)) g.vdata) ++ spc() ++
+         (hov 2 @@ pr_int_map (fun (vd : Graph.vdata) -> 
+            quote (str vd.value)) g.vdata)) ++ spc() ++
       (v 2 @@ str "Edges:" ++ spc () ++ 
-         pr_int_map (fun (ed : Graph.edata) -> quote (str ed.value)) g.edata) ++ spc() ++ 
+         (hov 2 @@ pr_int_map (fun (ed : Graph.edata) -> 
+            quote (str ed.value)) g.edata)) ++ spc() ++ 
       (hov 2 @@ str "Inputs:" ++ spc () ++ 
          prlist_with_brackets int g.inputs) ++ spc() ++
       (hov 2 @@ str "Outputs:" ++ spc () ++ 
          prlist_with_brackets int g.outputs)
+
+let pr_graph_full (g : Graph.t) = 
+   let open Pp in 
+   v 2 @@ str "Graph with" ++ spc() ++
+      (v 2 @@ str "Vertices:" ++ spc () ++ 
+         (hov 2 @@ pr_int_map (fun (vd : Graph.vdata) -> 
+            quote (str vd.value)) g.vdata)) ++ spc() ++
+      (v 2 @@ str "Edges:" ++ spc () ++ 
+         (hov 2 @@ pr_int_map (fun (ed : Graph.edata) -> 
+             (pr_edata_nice ed)) g.edata)) ++ spc() ++ 
+      (hov 2 @@ str "Inputs:" ++ spc () ++ 
+         prlist_with_brackets int g.inputs) ++ spc() ++
+      (hov 2 @@ str "Outputs:" ++ spc () ++ 
+         prlist_with_brackets int g.outputs)
+
+(* FIXME TODO: Move *)
+let vdata_is_orphan (vd : Graph.vdata) : bool =
+   Graph.NSet.is_empty vd.in_edges &&
+   Graph.NSet.is_empty vd.out_edges &&
+   Graph.NSet.is_empty vd.in_indices &&
+   Graph.NSet.is_empty vd.out_indices
+
+let pr_graph_nice (g : Graph.t) = 
+   let orphans = List.filter_map (fun (v, vd) -> 
+      if vdata_is_orphan vd then Some v else None) (Graph.NMap.bindings g.vdata) in 
+   let open Pp in 
+   hov 2 @@ str "!Graph" ++ spc() ++ 
+      prlist_with_sep pr_comma int g.inputs  ++ spc() ++ str "->" ++ spc() ++
+      prlist_with_sep pr_comma int g.outputs ++ spc() ++ str ":"  ++ spc() ++ 
+
+      prlist_with_sep pr_semicolon (fun (e, ed) -> pr_edge_to_parse e ed)
+         (Graph.NMap.bindings g.edata) ++
+
+      if CList.is_empty orphans then spc() else 
+         spc() ++ str "and" ++ spc() ++ prlist_with_sep pr_comma int orphans
+
 
 let pr_match ?(domain=false) ?(codomain=false) (m : Match.t) = 
    let open Pp in 
@@ -362,7 +441,74 @@ let pr_match ?(domain=false) ?(codomain=false) (m : Match.t) =
          pr_int_map int ~msep:(fun ()->str "->" ++ spc())
             m.edge_map) ++ pr_comma() ++ str "}"
 
+let pr_match_nice (m : Match.t) = 
+   let open Graph in 
+   let open Pp in
+   let edge_verts = List.fold_right (fun e vs -> 
+      let ed = edge_data m.domain e in 
+      NSet.union (NSet.of_list (ed.s @ ed.t)) vs) 
+      (NSet.elements (NMap.domain m.edge_map)) NSet.empty in 
+   let mapped_verts = NMap.domain m.vertex_map in 
+   let orphans = CList.filter (fun v -> 
+      not (NSet.mem v edge_verts) && NSet.mem v mapped_verts) 
+      (vertices m.domain) in 
+   let pr_item name idx = if name = ""
+      then int idx
+      else int idx ++ spc() ++ str "(" ++ str name ++ str ")" in
 
+   hov 2 @@ str "!Match" ++ spc() ++ str "mapping" ++ spc() ++ 
+      prlist_with_sep pr_comma (fun (e, e') -> 
+         let ed = Graph.edge_data m.domain e in 
+         let ed' = Graph.edge_data m.codomain e' in 
+         pr_item ed.value e ++ spc() ++ str "->" ++ spc() ++ 
+         pr_item ed'.value e')
+         (NMap.bindings m.edge_map) ++ 
+   if CList.is_empty orphans then spc() else 
+      spc() ++ str "and" ++ spc() ++ 
+      prlist_with_sep pr_comma (fun v -> 
+         let v' = NMap.find v m.vertex_map in 
+         let vd = Graph.vertex_data m.domain v in 
+         let vd' = Graph.vertex_data m.codomain v' in 
+         pr_item vd.value v ++ spc() ++ str "->" ++ spc() ++ 
+         pr_item vd'.value v')
+         orphans
+
+
+let pr_match_nice_full (m : Match.t) = 
+   let open Graph in 
+   let open Pp in
+   let edge_verts = List.fold_right (fun e vs -> 
+      let ed = edge_data m.domain e in 
+      NSet.union (NSet.of_list (ed.s @ ed.t)) vs) 
+      (NSet.elements (NMap.domain m.edge_map)) NSet.empty in 
+   let mapped_verts = NMap.domain m.vertex_map in 
+   let orphans = CList.filter (fun v -> 
+      not (NSet.mem v edge_verts) && NSet.mem v mapped_verts) 
+      (vertices m.domain) in 
+   let pr_item name idx = if name = ""
+      then int idx
+      else int idx ++ spc() ++ str "(" ++ str name ++ str ")" in
+
+   hov 2 @@ str "!Match" ++ spc() ++ 
+   str "(" ++ pr_graph_nice m.domain ++ str ")" ++
+   spc() ++ str "with" ++ spc() ++
+   str "(" ++ pr_graph_nice m.codomain ++ str ")" ++
+   spc() ++ str "mapping" ++ spc() ++ 
+      prlist_with_sep pr_comma (fun (e, e') -> 
+         let ed = Graph.edge_data m.domain e in 
+         let ed' = Graph.edge_data m.codomain e' in 
+         pr_item ed.value e ++ spc() ++ str "->" ++ spc() ++ 
+         pr_item ed'.value e')
+         (NMap.bindings m.edge_map) ++ 
+   if CList.is_empty orphans then spc() else 
+      spc() ++ str "and" ++ spc() ++ 
+      prlist_with_sep pr_comma (fun v -> 
+         let v' = NMap.find v m.vertex_map in 
+         let vd = Graph.vertex_data m.domain v in 
+         let vd' = Graph.vertex_data m.codomain v' in 
+         pr_item vd.value v ++ spc() ++ str "->" ++ spc() ++ 
+         pr_item vd'.value v')
+         orphans
 
 let _mk_pr r f = fun _ _ v _ -> f (repr_to r v)
 
@@ -417,8 +563,14 @@ let () = Tac2print.register_val_printer match_type_name {
 
 let () = define "print_vdata" (vdata @-> ret pp) pr_vdata
 let () = define "print_edata" (edata @-> ret pp) pr_edata
+let () = define "print_edata_nice" (edata @-> ret pp) pr_edata_nice
+let () = define "print_edge_to_parse" (int @-> edata @-> ret pp) pr_edge_to_parse
 let () = define "print_graph" (graph @-> ret pp) pr_graph
-let () = define "print_match" (match_t @-> ret pp) pr_match;
+let () = define "print_graph_full" (graph @-> ret pp) pr_graph_full
+let () = define "print_graph_nice" (graph @-> ret pp) pr_graph_nice
+let () = define "print_match" (match_t @-> ret pp) pr_match
+let () = define "print_match_nice" (match_t @-> ret pp) pr_match_nice
+let () = define "print_match_nice_full" (match_t @-> ret pp) pr_match_nice_full;
 
 
 

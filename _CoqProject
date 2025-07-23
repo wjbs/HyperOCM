@@ -5,7 +5,7 @@ META.hyperocm
 -I src
 -I .
 
--R _build/default/src HyperOCM
+-R _build/default/theories HyperOCM
 
 src/hypercaml_interface.ml
 src/hypercaml_interface.mli

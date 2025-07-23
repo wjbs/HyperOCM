@@ -61,6 +61,15 @@ Ltac2 @external value : t -> string
 Ltac2 @external print : t -> message
   := "hyperocm.hypercaml_interface" "print_edata".
 
+Ltac2 @external print_nice : t -> message
+  := "hyperocm.hypercaml_interface" "print_edata_nice".
+  
+Ltac2 @external print_to_parse : t -> message
+  := "hyperocm.hypercaml_interface" "print_edge_to_parse".
+
+Ltac2 @external string_of_edata : t -> string
+  := "hyperocm.hypercaml_interface" "graph_string_of_edata".
+
 End EData.
 
 Module Graph.
@@ -70,14 +79,22 @@ Ltac2 Type t.
 Ltac2 @external print : t -> message
   := "hyperocm.hypercaml_interface" "print_graph".
 
+Ltac2 @external print_full : t -> message
+  := "hyperocm.hypercaml_interface" "print_graph_full".
+
+Ltac2 @external print_nice : t -> message
+  := "hyperocm.hypercaml_interface" "print_graph_nice".
+
 Ltac2 @external make : unit -> t
   := "hyperocm.hypercaml_interface" "graph_make".
 
 
-Ltac2 @external make_from : (int, int) FMap.t -> (int, int) FMap.t
+Ltac2 @external make_from : (int, VData.t) FMap.t -> (int, EData.t) FMap.t
   -> int list -> int list -> int -> int -> t
   := "hyperocm.hypercaml_interface" "graph_make_from".
 
+Ltac2 @external equal : t -> t -> bool
+  := "hyperocm.hypercaml_interface" "graph_equal".
 
 Ltac2 @external vdata : t -> (int, VData.t) FMap.t
   := "hyperocm.hypercaml_interface" "graph_vdata".
@@ -155,13 +172,21 @@ Ltac2 Type t.
 Ltac2 @external print : t -> message
   := "hyperocm.hypercaml_interface" "print_match".
 
+Ltac2 @external print_nice : t -> message
+  := "hyperocm.hypercaml_interface" "print_match_nice".
+
+Ltac2 @external print_nice_full : t -> message
+  := "hyperocm.hypercaml_interface" "print_match_nice_full".
+
 Ltac2 @external make : Graph.t -> Graph.t -> t
   := "hyperocm.hypercaml_interface" "match_make".
 
-Ltac2 @external make_from : Graph.t -> Graph.t -> 
-  (int, int) FMap.t -> int FSet.t -> (int, int) FMap.t -> int FSet.t -> t
+Ltac2 @external make_from : Graph.t -> Graph.t -> (int, int) FMap.t -> 
+  int FSet.t -> (int, int) FMap.t -> int FSet.t -> t
   := "hyperocm.hypercaml_interface" "match_make_from".
 
+Ltac2 @external equal : t -> t -> bool
+  := "hyperocm.hypercaml_interface" "match_equal".
 
 Ltac2 @external domain : t -> Graph.t
   := "hyperocm.hypercaml_interface" "match_domain".
@@ -209,8 +234,11 @@ Ltac2 @external next_match : t list -> (t * (t list)) option
 Ltac2 @external seq_to_list : t list -> t list
   := "hyperocm.hypercaml_interface" "match_seq_to_list".
 
-Ltac2 @external match_graph : Graph.t -> Graph.t -> t
+Ltac2 @external match_graph : Graph.t -> Graph.t -> t list
   := "hyperocm.hypercaml_interface" "match_match_graph".
+
+Ltac2 @external count : t list -> int
+  := "hyperocm.hypercaml_interface" "match_count".
 
 Ltac2 @external find_iso : Graph.t -> Graph.t -> t option
   := "hyperocm.hypercaml_interface" "match_find_iso".
