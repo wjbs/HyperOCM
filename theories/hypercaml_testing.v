@@ -1,15 +1,14 @@
 Require HypercamlInterface.
-Require hypergraph_immutable.
-Require hypergraph_immutable_compat.
+Require hypergraph.
+Require hypergraph_compat.
 Require UTest.
-
-Module HyperimmutInterface := hypergraph_immutable_compat.HyperimmutInterface.
 
 Import Ltac2.Init.
 
+
 Module caml_test_graphs.
 
-Import HyperimmutInterface.
+Import HypercamlInterface.
 
 (* Warning! This function will fail on bad inputs! *)
 Ltac2 graph_of_edges_in_out 
@@ -207,7 +206,7 @@ End caml_test_graphs.
 
 Module camltest_graph.
 
-Import HyperimmutInterface.
+Import HypercamlInterface.
 
 
 Ltac2 test_make_graph () : UTest.t :=
@@ -502,7 +501,7 @@ End camltest_graph.
 
 Module camltest_match.
 
-Import HyperimmutInterface.
+Import HypercamlInterface.
 Import caml_test_graphs.
 
 (* Empty graphs should match *)
@@ -723,90 +722,13 @@ Ltac2 tests () := [
   ("hypergraph match proper", test_hypergraph_match_proper)
 ].
 
-
-(* Ltac2 Set hypergraph_immutable.debug_match := true. *)
-
-(* Ltac2 Eval 
-  (* UTest.seqs [ ( *)
-  (* Create identical small graphs that should match *)
-  let g1 := Graph.make () in
-  let (g1, v1) := Graph.add_vertex (Some "A") None g1 in
-  let (g1, v2) := Graph.add_vertex (Some "B") None g1 in
-  let (g1, _) := Graph.add_edge (Some "e1") None [v1] [v2] g1 in
-  
-  let g2 := Graph.make () in
-  let (g2, u1) := Graph.add_vertex (Some "A") None g2 in
-  let (g2, u2) := Graph.add_vertex (Some "B") None g2 in
-  let (g2, _) := Graph.add_edge (Some "e1") None [u1] [u2] g2 in
-
-  let matches := Match.match_graph g1 g2 in
-  hypergraph_immutable.GraphPrinting.prlist_with_sep (fun () => of_string ", ") (print_match_nice)
-  matches.
-
-  UTest.bool_eqv "identical graphs should match" true (Int.gt (Match.count matches) 0))]
-  
-  (* Test that degree constraints prevent matching into larger graphs *)
-  let large_path := make_path_graph ["A"; "B"; "C"] in
-  let small_path := make_path_graph ["A"; "B"] in
-  let no_matches := Match.match_graph small_path large_path in
-  UTest.int_eqv "degree constraints prevent subgraph matching" 0 (Match.count no_matches)]. *)
-
-(* Set Ltac2 Backtrace. *)
-
-(* Import hypergraph_immutable.
-Ltac2 Eval 
-  let g1 := make_simple_graph "edge1" in
-  let g2 := make_simple_graph "edge1" in
-  let domain := g1 in let codomain := g2 in 
-  let v_eq := String.equal in let edge_eq := String.equal in 
-  let matches_obj := hypergraph_immutable.mk_matches edge_eq domain codomain None false in 
-  next_match String.equal matches_obj. *)
-(* 
-Ltac2 Eval HypercamlInterface.Graph.print_full (
-  CamlOfLtac.graph (graph_g_alt())).
-
-Ltac2 Eval Graph.print (graph_g_alt()).
-
-Ltac2 Eval print_graph_nice (graph_g_alt()).
-
-
-Ltac2 Eval 
-  let g1' := Graph.make () in
-  let (g1, _) := Graph.add_vertex (Some "test1") None g1' in
-  let g2' := Graph.make () in
-  let (g2, _) := Graph.add_vertex (Some "test2") None g2' in
-
-  print (Graph.print g1);
-  print (print_graph_nice g2);
-  (Graph.num_vertices g1, Graph.num_vertices g2).
-  let matches := Match.match_graph g1 g2 in 
-  let m := List.hd matches in
-  HypercamlInterface.Match.print_nice_full (CamlOfLtac.match_ m). *)
-
 Ltac2 Eval UTest.asserts UTest.noprint (tests()).
 
 End camltest_match.
 
 Module camlgraph.
 
-Import caml_test_graphs HyperimmutInterface.
-
-Module CamlOfLtac := hypergraph_immutable_compat.CamlOfLtac.
-
-Ltac2 print_graph_nice (g : Graph.t) : message := 
-  HypercamlInterface.Graph.print_nice (CamlOfLtac.graph g).
-
-Ltac2 print_match_nice (g : Match.t) : message := 
-  HypercamlInterface.Match.print_nice (CamlOfLtac.match_ g).
-
-Ltac2 print_match_nice_full (g : Match.t) : message := 
-  HypercamlInterface.Match.print_nice_full (CamlOfLtac.match_ g).
-
-
-Import Message.
-
-
-Import HyperimmutInterface.
+Import HypercamlInterface.
 
 Ltac2 graph_g : unit -> Graph.t := fun () =>
   let g := Graph.make () in
@@ -845,12 +767,12 @@ Ltac2 graph_g_diff () : Graph.t := !Graph 0, 1 -> 4 :
 Ltac2 graph_h_diff () : Graph.t := !Graph 0, 1 -> 4,6 : 
   f (0) : 0, 1 -> 2; g (1) : 3 -> 4; g (2) : 5 -> 6.
 
-(* Ltac2 Eval Graph.equal (graph_h()) (graph_h_alt()). *)
-(* Ltac2 Eval Graph.equal (graph_h()) (graph_h_diff()). *)
+(* Ltac2 Eval Graph.equal (graph_h()) (graph_h_alt()).
+Ltac2 Eval Graph.equal (graph_h()) (graph_h_diff()). *)
 
 
-(* Ltac2 Eval Match.count (Match.match_graph (graph_g ()) (graph_h ())). *)
-(* Ltac2 Eval Match.count (Match.match_graph (graph_g_diff ()) (graph_g_diff ())). *)
+(* Ltac2 Eval Match.count (Match.match_graph (graph_g ()) (graph_h ())).
+Ltac2 Eval Match.count (Match.match_graph (graph_g_diff ()) (graph_g_diff ())). *)
 
 (* Ltac2 Eval List.map Match.print_nice_full
   (Match.seq_to_list (Match.match_graph (graph_g_diff ()) (graph_h_diff ()))). *)
@@ -859,21 +781,21 @@ Ltac2 graph_h_diff () : Graph.t := !Graph 0, 1 -> 4,6 :
 Ltac2 match_ex () : Match.t := 
   !Match (graph_g_diff()) with (graph_h_diff()) mapping 
     0 (f) -> 0 (f), 1 (g) -> 2 (g).
-(* 
-Ltac2 Eval Message.print (Match.print_nice_full (match_ex())).
+
+(* Ltac2 Eval Message.print (Match.print_nice_full (match_ex())).
 Ltac2 Eval Match.equal (match_ex()) (!Match (!Graph 0, 1 -> 4 : f (0) : 0, 1 -> 2; g (1) : 3 -> 4 ) with
   (!Graph 0, 1 -> 4, 6 : f (0) : 0, 1 -> 2; g (1) : 3 -> 4; g (2) : 5 -> 6 )
-  mapping 0 (f) -> 0 (f), 1 (g) -> 2 (g)).
+  mapping 0 (f) -> 0 (f), 1 (g) -> 2 (g)). *)
 
-Ltac2 Eval Message.print (Graph.print_nice (graph_g ())).
+(* Ltac2 Eval Message.print (Graph.print_nice (graph_g ())).
 Ltac2 Eval Message.print (Graph.print_nice (!Graph 0, 1 -> 3 : 
   f : 0 , 1 -> 2 ; g (3) : 2 -> 3)).
-Ltac2 Eval Message.print (Graph.print_nice (graph_h ())).
+Ltac2 Eval Message.print (Graph.print_nice (graph_h ())). *)
 
 (* Ltac2 readme_test () : UTest.t :=
   UTest.int_eqv  *)
 
-Ltac2 Eval Match.count (Match.match_graph (graph_g ()) (graph_h ())).
+(* Ltac2 Eval Match.count (Match.match_graph (graph_g ()) (graph_h ())).
 Ltac2 Eval 
   let ms := Match.seq_to_list (Match.match_graph (graph_g ()) (graph_h ())) in 
   List.iter (fun m => Message.print (Match.print m)) ms. *)

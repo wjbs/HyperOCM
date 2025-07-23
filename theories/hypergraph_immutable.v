@@ -1,17 +1,11 @@
 Require Import Ltac2.Init.
-
 Require Ltac2.Ltac2.
-
-Require hypergraph.
-
-Import hypergraph.ListForEach.
-
 Require Import FSetExtra.
+Require PrintingExtra.
+Require ListExtra.
 
-(* FIXME: Remove! Just for reference. *)
-(* Require HypercamlInterface.
-Module HI := HypercamlInterface. *)
 
+Import ListExtra.ListForEach.
 
 Set Default Proof Mode "Classic".
 
@@ -80,16 +74,13 @@ Ltac2 vdata_equal (v_eq : 'a -> 'a -> bool) : 'a VData -> 'a VData -> bool :=
     Option.equal v_eq (v.(vvalue)) (v'.(vvalue))
   ] true.
 
-(* Import Printf. 
-Ltac2 Eval let v := mk_vdata (Some ()) in 
-  printf "Size of v.in_edges = %i" (FSet.cardinal (v.(in_edges)));
-  let v' := v in 
-  let v'' := vcopy v in
-  v.(in_edges) := FSet.add 1 (v.(in_edges));
-  printf "Size of v.in_edges = %i" (FSet.cardinal (v.(in_edges)));
-  printf "Size of v'.in_edges = %i" (FSet.cardinal (v'.(in_edges)));
-  printf "Size of v''.in_edges = %i" (FSet.cardinal (v''.(in_edges))).
- *)
+
+Ltac2 vdata_is_orphan (vd : 'v VData) : bool :=
+  List.fold_right Bool.and [FSet.is_empty (vd.(in_edges));
+  FSet.is_empty (vd.(out_edges));
+  FSet.is_empty (vd.(in_indices));
+  FSet.is_empty (vd.(out_indices))] true.
+
 
 
 Ltac2 Type 'a EData := {
@@ -156,30 +147,11 @@ Ltac2 mk_graph_from : (int, 'v VData) FMap.t -> (int, 'e EData) FMap.t ->
   _eindex := eidx;
 }.
 
-Ltac2 vdata_is_orphan (vd : 'v VData) : bool :=
-  List.fold_right Bool.and [FSet.is_empty (vd.(in_edges));
-   FSet.is_empty (vd.(out_edges));
-   FSet.is_empty (vd.(in_indices));
-   FSet.is_empty (vd.(out_indices))] true.
-
-(* FIXME: Move *)
-Ltac2 map_equal (v_eq : 'v -> 'v -> bool) : 
-  ('k, 'v) FMap.t -> ('k, 'v) FMap.t -> bool :=
-  fun m m' => 
-  Bool.and (Int.equal (FMap.cardinal m) (FMap.cardinal m')) (
-    FMap.fold2 (fun _k may_v may_v' b => 
-      Bool.and b 
-      (match may_v, may_v' with 
-      | Some v, Some v' => v_eq v v'
-      | None, None => true
-      | _, _ => false
-      end)) m m' true).
-
 Ltac2 graph_equal (v_eq : 'v -> 'v -> bool) (e_eq : 'e -> 'e -> bool) : 
   ('v, 'e) Graph -> ('v, 'e) Graph -> bool :=
   fun g g' => List.fold_right Bool.and [
-    map_equal (vdata_equal v_eq) (g.(vdata)) (g'.(vdata));
-    map_equal (edata_equal e_eq) (g.(edata)) (g'.(edata));
+    FMap.equal (vdata_equal v_eq) (g.(vdata)) (g'.(vdata));
+    FMap.equal (edata_equal e_eq) (g.(edata)) (g'.(edata));
     List.equal Int.equal (g.(_inputs)) (g'.(_inputs));
     List.equal Int.equal (g.(_outputs)) (g'.(_outputs))
   ] true.
@@ -188,119 +160,43 @@ Module GraphPrinting.
 
 Export Message Printf.
 
-Ltac2 print_sep_list sep (l : 'a list) (f : 'a -> string) : string :=
-  List.fold_right (fun a m =>
-    Message.to_string (fprintf "%s%s%s" (f a)
-    (if String.is_empty m then "" else sep) m)) l "".
+Export PrintingExtra.
 
-Ltac2 print_cs_list (l : 'a list) (f : 'a -> string) : string :=
-  print_sep_list ", " l f.
-
-Ltac2 print_sep_list' sep (l : 'a list) (f : 'a -> message) : message :=
-  List.fold_right (fun a m =>
-    Message.concat (f a) (Message.concat 
-    (if String.is_empty (Message.to_string m) then (fprintf "") else sep) m)) 
-    l (fprintf "").
-
-
-Ltac2 concats (ms : message list) : message :=
-  List.fold_right concat ms (of_string "").
-
-
-Ltac2 print_map (pr_k : 'k -> message) (pr_v : 'v -> message) : ('k, 'v) FMap.t -> message := 
-  fun m => concats [of_string "{" ; 
-  print_sep_list' (concat (of_string ",") (break 1 0)) 
-    (FMap.bindings m) (fun (k, v) => 
-    concats [pr_k k; of_string " : "; pr_v v])
-    ; of_string "}"].
-
-Ltac2 print_int_map m := print_map of_int of_int m.
-
-Ltac2 print_set (pr_v : 'v -> message) : 'v FSet.t -> message := 
-  fun s => concats [of_string "{" ; 
-  print_sep_list' (concat (of_string ",") (break 1 0)) 
-    (FSet.elements s) pr_v
-    ; of_string "}"].
-
-Ltac2 print_int_set m := print_set of_int m.
-
+Import PpExtra.
 
 Ltac2 print_graph (pr_v : 'v -> message) (pr_e : 'e -> message)
   (g : ('v, 'e) Graph) : message :=
   vbox 2 (concats [of_string "Graph with" ; break 1 0 ; 
     vbox 2 (concats [of_string "Vertices:" ; break 1 0 ;
-      print_sep_list' (concat (of_string ",") (break 1 0))
-      (FMap.bindings (g.(vdata)))
+      prlist_with_sep pr_comma
       (fun (v, vd) => 
         hbox (concats [of_int v; of_string " (";
         Option.map_default pr_v (of_string "None") (vvalue vd);
-        of_string ")"])) ]) ; 
+        of_string ")"]))
+      (FMap.bindings (g.(vdata))) ]) ; 
     break 1 0;
     vbox 2 (concats [of_string "Edges:" ; break 1 0 ;
-      print_sep_list' (concat (of_string ",") (break 1 0))
-      (FMap.bindings (g.(edata)))
+      prlist_with_sep pr_comma
       (fun (e, ed) => 
         hbox (concats [of_int e; of_string " (";
         Option.map_default pr_e (of_string "None") (ed.(value));
         of_string ") :"; break 1 2; 
-          of_string "[" ;
-          print_sep_list' (of_string ", ") (ed.(s)) of_int;
-          of_string "]"; break 1 2; of_string "-> [";
-          print_sep_list' (of_string ", ") (ed.(t)) of_int;
-          of_string "]"]))]) ; 
+          of_list int (ed.(s)) ++ spc() ++ str "->" ++ spc () ++
+          of_list int (ed.(t))]))
+      (FMap.bindings (g.(edata)))]) ; 
     break 1 0 ;
     vbox 2 (concats [of_string "Inputs:" ; break 1 0 ;
-      hbox (print_sep_list' (concat (of_string ",") (break 1 0))
-      (g.(_inputs)) of_int) ]) ; 
+      hbox (prlist_with_sep pr_comma int (g.(_inputs))) ]) ; 
     break 1 0 ;
     vbox 2 (concats [of_string "Outputs:" ; break 1 0 ;
-      hbox (print_sep_list' (concat (of_string ",") (break 1 0))
-      (g.(_outputs)) of_int) ])]).
+      hbox (prlist_with_sep pr_comma int (g.(_outputs))) ])]).
 
 Ltac2 print_int_graph g := print_graph of_int of_int g.
 Ltac2 print_string_graph g := print_graph of_string of_string g.
 
 
-Ltac2 prlist_sep_lastsep (no_empty : bool) (sep_thunk : unit -> message) 
-  (lastsep_thunk : unit -> message) (elem : 'a -> message) (l : 'a list) : message :=
-  let sep := sep_thunk () in
-  let lastsep := lastsep_thunk () in
-  let elems := List.map elem l in
-  let filtered_elems :=
-    if no_empty then
-      List.filter (fun e => Bool.neg (String.is_empty (to_string e))) elems
-    else
-      elems
-  in
-  let rec insert_seps es :=
-    match es with
-    | []     => of_string ""
-    | h :: rest => match rest with 
-      | [] => h
-      | e :: rest' => match rest' with 
-        | [] => concats [h; lastsep; e]
-        | _ => concats [h; sep; insert_seps (e :: rest')]
-        end
-      end
-    end
-  in
-  insert_seps filtered_elems.
-
-Ltac2 prlist_strict pr l := prlist_sep_lastsep true 
-  (fun () => of_string "") (fun () => of_string "") pr l.
-(* [prlist_with_sep sep pr [a ; ... ; c]] outputs
-   [pr a ++ sep() ++ ... ++ sep() ++ pr c] *)
-Ltac2 prlist_with_sep sep pr l := 
-  prlist_sep_lastsep false sep sep pr l.
 
 Ltac2 pr_edge_to_parse (pr_e : 'e -> message) (e : int) (ed : 'e EData) : message :=
-  let pr_comma () := concats [of_string ","; break 1 0] in 
-  let pr_colon () := concats [of_string ":"; break 1 0] in 
-  let spc () := break 1 0 in
-  let hov := hovbox in 
-  let str := of_string in 
-  let int := of_int in 
-  
   hov 2 (concats [Option.map_default pr_e (str "") (ed.(value)); spc(); 
     str "("; int e; str ")"; spc(); pr_colon();
     prlist_with_sep pr_comma int (ed.(s)); spc(); str "->"; spc();
@@ -326,23 +222,6 @@ Ltac2 pr_graph_nice (* (pr_v : 'v -> message) *) (pr_e : 'e -> message)
     if List.is_empty orphans then spc() else 
       concats [spc(); str "and"; spc(); prlist_with_sep pr_comma int orphans]]).
 
-Ltac2 pr_int_set (s : int FSet.t) : message :=
-  let pr_comma () := concats [of_string ","; break 1 0] in 
-  let str := of_string in 
-  let int := of_int in 
-  concats [str "{";
-    prlist_with_sep pr_comma int (FSet.elements s);
-    str "}"
-  ].
-
-Ltac2 pr_int_list (s : int list) : message :=
-  let pr_comma () := concats [of_string ","; break 1 0] in 
-  let str := of_string in 
-  let int := of_int in 
-  concats [str "[";
-    prlist_with_sep pr_comma int s;
-    str "]"
-  ].
 
 
 Ltac2 pr_vdata (pr_v : 'v -> message) (vd : 'v VData) : message :=
@@ -827,8 +706,8 @@ Ltac2 match_equal (v_eq : 'v -> 'v -> bool) (e_eq : 'e -> 'e -> bool) :
   List.fold_right Bool.and [
     graph_equal v_eq e_eq (m.(domain)) (m'.(domain));
     graph_equal v_eq e_eq (m.(codomain)) (m'.(codomain));
-    map_equal Int.equal (m.(vertex_map)) (m'.(vertex_map));
-    map_equal Int.equal (m.(edge_map)) (m'.(edge_map));
+    FMap.equal Int.equal (m.(vertex_map)) (m'.(vertex_map));
+    FMap.equal Int.equal (m.(edge_map)) (m'.(edge_map));
     FSet.equal (m.(vertex_image)) (m'.(vertex_image));
     FSet.equal (m.(edge_image)) (m'.(edge_image))
   ] true.
@@ -901,11 +780,13 @@ Ltac2 print_match_full (pr_v : 'v -> message)
 
 End Printing.
 
+Import PrintingExtra.
+
 Ltac2 try_add_vertex (v_eq : 'v -> 'v -> bool) 
   (m : ('v, 'e) Match) (domain_vertex : int) 
   (codomain_vertex : int) : ('v, 'e) Match option :=
   let _brks (l : message list) : message := 
-    GraphPrinting.prlist_with_sep (fun () => Message.break 1 2) (fun x => x) l in 
+    Pp.prlist_with_sep (fun () => Message.break 1 2) (fun x => x) l in 
   let mapstr := Message.to_string (fprintf "%i -> %i" domain_vertex codomain_vertex) in 
   match_log (fprintf "Trying to add vertex %s to match:" mapstr);
   
@@ -964,7 +845,7 @@ Ltac2 try_add_vertex (v_eq : 'v -> 'v -> bool)
 Ltac2 try_add_edge (v_eq : 'v -> 'v -> bool) (m : ('v, 'e) Match) 
   (domain_edge : int) (codomain_edge : int) : ('v, 'e) Match option :=
   let brks (l : message list) : message := 
-    GraphPrinting.prlist_with_sep (fun () => Message.break 1 2) (fun x => x) l in 
+    Pp.prlist_with_sep (fun () => Message.break 1 2) (fun x => x) l in 
   let mapstr := Message.to_string (fprintf "%i -> %i" domain_edge codomain_edge) in 
   match_log (fprintf "Trying to add edge %s to match:" mapstr);
   

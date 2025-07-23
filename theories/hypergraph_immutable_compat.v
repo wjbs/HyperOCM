@@ -129,7 +129,7 @@ Ltac2 print (e : t) : message :=
 
 Ltac2 string_of_edata (e : t) : string :=
   let pr_list l := Message.to_string 
-    (GraphPrinting.prlist_with_sep (fun () => Message.of_string "; ")
+    (PrintingExtra.Pp.prlist_with_sep (fun () => Message.of_string "; ")
       Message.of_int l) in 
   List.fold_right String.app ["Edge: ";
     value e; " ([";

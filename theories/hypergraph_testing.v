@@ -1,223 +1,15 @@
 Require HypercamlInterface.
 Require hypergraph.
 Require hypergraph_compat.
+Require UTest.
+
+Import hypergraph_compat.
 
 Import Ltac2.Init.
 
-
-
-Module UTest.
-
-(* A test is a function taking printers for info, warnings, and errors
-  which returns a boolean *)
-Ltac2 Type t := 
-    (message -> unit) -> (* Info printer *)
-    (message -> unit) -> (* Warning printer *)
-    (message -> unit) -> (* Error printer *)
-    (unit -> bool).
-
-
-
-Ltac2 pr_with_prefix (m : message) : message -> unit :=
-  fun m' => 
-  Message.print (Message.concat 
-  (Message.concat m (Message.break 1 0)) m').
-
-Ltac2 pr_info m := 
-  pr_with_prefix (Message.of_string "[INFO]") m.
-Ltac2 pr_warn m := 
-  pr_with_prefix (Message.of_string "[WARNING]") m.
-Ltac2 pr_err m := 
-  pr_with_prefix (Message.of_string "[ERROR]") m.
-
-Ltac2 noprint (_ : message) : unit := ().
-
-(* FIXME: Move *)
-Ltac2 of_bool (b : bool) : message :=
-  match b with 
-  | true => Message.of_string "true"
-  | false => Message.of_string "false"
-  end.
-(* FIXME: Move *)
-Ltac2 of_list (pr : 'a -> message) : 'a list -> message := fun l => 
-  Message.concat (Message.concat 
-  (Message.of_string "[")
-  (hypergraph.GraphPrinting.print_sep_list' 
-    (Message.of_string ", ") l pr))
-  (Message.of_string "]").
-
-(* Run a test, printing all messages as-is *)
-Ltac2 run_raw (test : unit -> t) : bool :=
-  test () Message.print Message.print Message.print ().
-
-(* Run a test, printing all messages with prefixes indicating their type *)
-Ltac2 run (test : unit -> t) : bool :=
-  test () pr_info pr_warn pr_err ().
-
-(* Run a test, printing any warnings and errors but no info *)
-Ltac2 check (test : unit -> t) : bool :=
-  test ()
-    noprint 
-    pr_warn
-    pr_err
-    ().
-
-(* Run a test, printing only errors and throwing a fatal exception 
-  if the result is false*)
-Ltac2 assert (test : unit -> t) : unit :=
-  match test () noprint noprint pr_err () with
-  | true => ()
-  | false => Control.throw Assertion_failure
-  end.
-
-(* Versions of running a test for lists of labeled tests *)
-
-Ltac2 run_raws (tests : (string * (unit -> t)) list) : bool :=
-  List.fold_left (fun b (name, t) => 
-  pr_info (Message.of_string (String.app "Running test: " name));
-  Bool.and (run_raw t) b) true tests.
-
-Ltac2 runs (tests : (string * (unit -> t)) list) : bool :=
-  List.fold_left (fun b (name, t) => 
-  pr_info (Message.of_string (String.app "Running test: " name));
-  Bool.and (run t) b) true tests.
-
-Ltac2 checks (tests : (string * (unit -> t)) list) : bool :=
-  List.fold_left (fun b (name, t) => 
-  pr_info (Message.of_string (String.app "Running test: " name));
-  Bool.and (check t) b) true tests.
-
-Ltac2 asserts (pr_run : message -> unit) 
-  (tests : (string * (unit -> t)) list) : unit :=
-  List.iter (fun (name, t) => 
-  pr_run (Message.of_string (String.app "Running test: " name));
-  assert t) tests.
-
-(** Common assertion constructors *)
-
-Ltac2 notest () : t :=
-  fun _info _warn _err () => true.
-
-Ltac2 seq : t -> t -> t := fun test1 test2 => 
-  fun info warn err () => 
-  Bool.and (test1 info warn err ()) (test2 info warn err ()).
-
-Ltac2 seqs : t list -> t := fun tests => 
-  List.fold_right seq tests (notest ()).
-
-(* Returns the boolean value, printing the message if the value is false *)
-Ltac2 with_err (pr : message -> unit) (m : message) (b : bool) : bool :=
-  match b with 
-  | true => true
-  | false => pr m; false
-  end.
-
-(* Returns the boolean value, printing the string if the value is false *)
-Ltac2 with_errs (pr : message -> unit) (s : string) (b : bool) : bool :=
-  match b with 
-  | true => true
-  | false => pr (Message.of_string s); false
-  end.
-
-(* Tests two values for equality, using a printer for better info/error messages *)
-Ltac2 value_eq_pr (eq : 'a -> 'a -> bool) (pr : 'a -> message)
-  (expected : unit -> 'a) (test_val : unit -> 'a) (on_err : string) : t :=
-  fun info _warn err () => 
-  let ev := expected () in 
-  info (Message.concat (Message.of_string "Expected value: ") (pr ev));
-  let v := test_val () in 
-  info (Message.concat (Message.of_string "Actual value:   ") (pr v));
-  let res := eq ev v in 
-  let base_err_msg := Message.concat (Message.concat (Message.concat 
-    (Message.of_string "Values did not match! Expected ")
-    (pr ev))
-    (Message.of_string ", got "))
-    (pr v) in
-  let err_msg := Message.concat (Message.concat 
-    base_err_msg 
-    (Message.of_string ". Message: "))
-    (Message.of_string on_err) in
-  with_err err err_msg res.
-
-(* Tests two values for equality *)
-Ltac2 value_eq (eq : 'a -> 'a -> bool)
-  (expected : unit -> 'a) (test_val : unit -> 'a) (on_err : string) : t :=
-  fun _info _warn err () => 
-  let ev := expected () in 
-  let v := test_val () in 
-  let res := eq ev v in 
-  let err_msg := Message.concat 
-    (Message.of_string "Values did not match! Message: ")
-    (Message.of_string on_err) in
-  with_err err err_msg res.
-
-(* Tests two ints for equality *)
-Ltac2 int_eq 
-  (on_err : string)
-  (expected : unit -> int) (test_val : unit -> int) : t :=
-  value_eq_pr Int.equal Message.of_int test_val expected on_err.
-
-(* Tests two bools for equality *)
-Ltac2 bool_eq 
-  (on_err : string)
-  (expected : unit -> bool) (test_val : unit -> bool) : t :=
-  value_eq_pr Bool.equal of_bool test_val expected on_err.
-
-(* Tests two strings for equality *)
-Ltac2 string_eq 
-  (on_err : string)
-  (expected : unit -> string) (test_val : unit -> string) : t :=
-  value_eq_pr String.equal Message.of_string test_val expected on_err.
-
-(* Tests two lists of ints for equality *)
-Ltac2 int_list_eq 
-  (on_err : string)
-  (expected : unit -> int list) (test_val : unit -> int list) : t :=
-  value_eq_pr (List.equal Int.equal)
-  (of_list Message.of_int) test_val expected on_err.
-
-(* Tests two unthunked ints for equality *)
-Ltac2 int_eqv 
-  (on_err : string)
-  (expected : int) (test_val : int) : t :=
-  value_eq_pr Int.equal Message.of_int 
-    (fun () => test_val) (fun () => expected) on_err.
-
-(* Tests two unthunked bools for equality *)
-Ltac2 bool_eqv 
-  (on_err : string)
-  (expected : bool) (test_val : bool) : t :=
-  value_eq_pr Bool.equal of_bool 
-    (fun () => test_val) (fun () => expected) on_err.
-
-(* Tests two unthunked strings for equality *)
-Ltac2 string_eqv 
-  (on_err : string)
-  (expected : string) (test_val : string) : t :=
-  value_eq_pr String.equal Message.of_string 
-  (fun () => test_val) (fun () => expected) on_err.
-
-(* Tests two unthunked lists of ints for equality *)
-Ltac2 int_list_eqv 
-  (on_err : string)
-  (expected : int list) (test_val : int list) : t :=
-  value_eq_pr (List.equal Int.equal)
-  (of_list Message.of_int) 
-  (fun () => test_val) (fun () => expected) on_err.
-
-Ltac2 example () : t := 
-  bool_eq "Equality should be reflexive" 
-    (fun () => true) (fun () => true).
-Ltac2 examplev () : t := 
-  bool_eqv "Equality should be reflexive" true true.
-
-End UTest.
-
-
-
 Module caml_test_graphs.
 
-Import HypercamlInterface.
+Import HypermutInterface.
 
 (* Warning! This function will fail on bad inputs! *)
 Ltac2 graph_of_edges_in_out 
@@ -415,7 +207,7 @@ End caml_test_graphs.
 
 Module camltest_graph.
 
-Import HypercamlInterface.
+Import HypermutInterface.
 
 
 Ltac2 test_make_graph () : UTest.t :=
@@ -710,7 +502,7 @@ End camltest_graph.
 
 Module camltest_match.
 
-Import HypercamlInterface.
+Import HypermutInterface.
 Import caml_test_graphs.
 
 (* Empty graphs should match *)
@@ -931,13 +723,88 @@ Ltac2 tests () := [
   ("hypergraph match proper", test_hypergraph_match_proper)
 ].
 
+
+(* Ltac2 Set hypergraph_immutable.debug_match := true. *)
+
+(* Ltac2 Eval 
+  (* UTest.seqs [ ( *)
+  (* Create identical small graphs that should match *)
+  let g1 := Graph.make () in
+  let (g1, v1) := Graph.add_vertex (Some "A") None g1 in
+  let (g1, v2) := Graph.add_vertex (Some "B") None g1 in
+  let (g1, _) := Graph.add_edge (Some "e1") None [v1] [v2] g1 in
+  
+  let g2 := Graph.make () in
+  let (g2, u1) := Graph.add_vertex (Some "A") None g2 in
+  let (g2, u2) := Graph.add_vertex (Some "B") None g2 in
+  let (g2, _) := Graph.add_edge (Some "e1") None [u1] [u2] g2 in
+
+  let matches := Match.match_graph g1 g2 in
+  hypergraph_immutable.GraphPrinting.prlist_with_sep (fun () => of_string ", ") (print_match_nice)
+  matches.
+
+  UTest.bool_eqv "identical graphs should match" true (Int.gt (Match.count matches) 0))]
+  
+  (* Test that degree constraints prevent matching into larger graphs *)
+  let large_path := make_path_graph ["A"; "B"; "C"] in
+  let small_path := make_path_graph ["A"; "B"] in
+  let no_matches := Match.match_graph small_path large_path in
+  UTest.int_eqv "degree constraints prevent subgraph matching" 0 (Match.count no_matches)]. *)
+
+(* Set Ltac2 Backtrace. *)
+
+(* Import hypergraph_immutable.
+Ltac2 Eval 
+  let g1 := make_simple_graph "edge1" in
+  let g2 := make_simple_graph "edge1" in
+  let domain := g1 in let codomain := g2 in 
+  let v_eq := String.equal in let edge_eq := String.equal in 
+  let matches_obj := hypergraph_immutable.mk_matches edge_eq domain codomain None false in 
+  next_match String.equal matches_obj. *)
+(* 
+Ltac2 Eval HypercamlInterface.Graph.print_full (
+  CamlOfLtac.graph (graph_g_alt())).
+
+Ltac2 Eval Graph.print (graph_g_alt()).
+
+Ltac2 Eval print_graph_nice (graph_g_alt()).
+
+
+Ltac2 Eval 
+  let g1' := Graph.make () in
+  let (g1, _) := Graph.add_vertex (Some "test1") None g1' in
+  let g2' := Graph.make () in
+  let (g2, _) := Graph.add_vertex (Some "test2") None g2' in
+
+  print (Graph.print g1);
+  print (print_graph_nice g2);
+  (Graph.num_vertices g1, Graph.num_vertices g2).
+  let matches := Match.match_graph g1 g2 in 
+  let m := List.hd matches in
+  HypercamlInterface.Match.print_nice_full (CamlOfLtac.match_ m). *)
+
 Ltac2 Eval UTest.asserts UTest.noprint (tests()).
 
 End camltest_match.
 
 Module camlgraph.
 
-Import HypercamlInterface.
+Import caml_test_graphs HypermutInterface.
+
+Ltac2 print_graph_nice (g : Graph.t) : message := 
+  HypercamlInterface.Graph.print_nice (CamlOfLtac.graph g).
+
+Ltac2 print_match_nice (g : Match.t) : message := 
+  HypercamlInterface.Match.print_nice (CamlOfLtac.match_ g).
+
+Ltac2 print_match_nice_full (g : Match.t) : message := 
+  HypercamlInterface.Match.print_nice_full (CamlOfLtac.match_ g).
+
+
+Import Message.
+
+
+Import HypermutInterface.
 
 Ltac2 graph_g : unit -> Graph.t := fun () =>
   let g := Graph.make () in
@@ -976,21 +843,21 @@ Ltac2 graph_g_diff () : Graph.t := !Graph 0, 1 -> 4 :
 Ltac2 graph_h_diff () : Graph.t := !Graph 0, 1 -> 4,6 : 
   f (0) : 0, 1 -> 2; g (1) : 3 -> 4; g (2) : 5 -> 6.
 
-Ltac2 Eval Graph.equal (graph_h()) (graph_h_alt()).
-Ltac2 Eval Graph.equal (graph_h()) (graph_h_diff()).
+(* Ltac2 Eval Graph.equal (graph_h()) (graph_h_alt()). *)
+(* Ltac2 Eval Graph.equal (graph_h()) (graph_h_diff()). *)
 
 
-Ltac2 Eval Match.count (Match.match_graph (graph_g ()) (graph_h ())).
-Ltac2 Eval Match.count (Match.match_graph (graph_g_diff ()) (graph_g_diff ())).
+(* Ltac2 Eval Match.count (Match.match_graph (graph_g ()) (graph_h ())). *)
+(* Ltac2 Eval Match.count (Match.match_graph (graph_g_diff ()) (graph_g_diff ())). *)
 
-Ltac2 Eval List.map Match.print_nice_full
-  (Match.seq_to_list (Match.match_graph (graph_g_diff ()) (graph_h_diff ()))).
+(* Ltac2 Eval List.map Match.print_nice_full
+  (Match.seq_to_list (Match.match_graph (graph_g_diff ()) (graph_h_diff ()))). *)
 
 
 Ltac2 match_ex () : Match.t := 
   !Match (graph_g_diff()) with (graph_h_diff()) mapping 
     0 (f) -> 0 (f), 1 (g) -> 2 (g).
-
+(* 
 Ltac2 Eval Message.print (Match.print_nice_full (match_ex())).
 Ltac2 Eval Match.equal (match_ex()) (!Match (!Graph 0, 1 -> 4 : f (0) : 0, 1 -> 2; g (1) : 3 -> 4 ) with
   (!Graph 0, 1 -> 4, 6 : f (0) : 0, 1 -> 2; g (1) : 3 -> 4; g (2) : 5 -> 6 )
@@ -1007,6 +874,6 @@ Ltac2 Eval Message.print (Graph.print_nice (graph_h ())).
 Ltac2 Eval Match.count (Match.match_graph (graph_g ()) (graph_h ())).
 Ltac2 Eval 
   let ms := Match.seq_to_list (Match.match_graph (graph_g ()) (graph_h ())) in 
-  List.iter (fun m => Message.print (Match.print m)) ms.
+  List.iter (fun m => Message.print (Match.print m)) ms. *)
 
 End camlgraph.

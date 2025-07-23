@@ -62,6 +62,18 @@ Ltac2 fold2 : ('a -> 'b option -> 'c option -> 'acc -> 'acc) ->
   FSet.fold (fun a acc => f a (FMap.find_opt a m) (FMap.find_opt a m') acc)
     dom init.
 
+Ltac2 equal (v_eq : 'v -> 'v -> bool) : 
+  ('k, 'v) FMap.t -> ('k, 'v) FMap.t -> bool :=
+  fun m m' => 
+  Bool.and (Int.equal (FMap.cardinal m) (FMap.cardinal m')) (
+    FMap.fold2 (fun _k may_v may_v' b => 
+      Bool.and b 
+      (match may_v, may_v' with 
+      | Some v, Some v' => v_eq v v'
+      | None, None => true
+      | _, _ => false
+      end)) m m' true).
+
 End FMap.
 
 

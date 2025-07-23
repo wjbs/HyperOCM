@@ -1,5 +1,6 @@
+Require PrintingExtra.
 Require Import Ltac2.Init.
-
+Require ListExtra.
 Require Ltac2.Ltac2.
 
 Set Default Proof Mode "Classic".
@@ -9,133 +10,8 @@ Ltac2 max (x : int) (y : int) : int :=
 
 Require Import FSetExtra.
 
-Module Function.
 
-Ltac2 compose : ('b -> 'c) -> ('a -> 'b) -> 'a -> 'c :=
-  fun g f a => g (f a).
-
-End Function.
-
-Module SumType.
-Import Function.
-
-Ltac2 Type ('a, 'b) sum :=
-  [ OrL ('a) | 
-    OrR ('b) ].
-
-Ltac2 or_introl : 'a -> ('a, 'b) sum :=
-  fun a => OrL a.
-
-Ltac2 or_intror : 'b -> ('a, 'b) sum :=
-  fun b => OrR b.
-
-Ltac2 inl : 'a -> ('a, 'b) sum :=
-  fun a => OrL a.
-
-Ltac2 inr : 'b -> ('a, 'b) sum :=
-  fun b => OrR b.
-
-Ltac2 elim : ('a -> 'c) -> ('b -> 'c) -> ('a, 'b) sum -> 'c :=
-  fun l r ab => 
-  match ab with 
-  | OrL a => l a
-  | OrR b => r b
-  end.
-
-Ltac2 map : ('a -> 'c) -> ('b -> 'd) -> ('a, 'b) sum -> ('c, 'd) sum :=
-  fun l r => elim (compose inl l) (compose inr r).
-
-End SumType.
-
-
-Module ListForEach.
-Import List.
-Import SumType.
-
-(* A variant of the for-each loop along with an additional state.
-  Each iteration of the body updates the state based on the value 
-  of the list, returning the updated state and an optional return 
-  value. If an iteration returns a (non-None) return value, it is 
-  the final iteration which is executed. If all steps return None 
-  then the [or_else] function determines the return value. *)
-Ltac2 fold_each (l : 'value list) (init : 'state)
-  (body : 'state -> 'value -> 'state * 'ret option) 
-  (or_else : 'state -> 'ret) : 'state * 'ret := 
-  let (state, ret) := 
-    fold_left (fun ((state, ret) : 'state * 'ret option) (value : 'value) =>
-      match ret with 
-      | Some r => (state, Some r)
-      | None => 
-        body state value
-      end) (init, None) l in 
-  match ret with 
-  | Some r => (state, r)
-  | None => (state, or_else state)
-  end.
-
-(* A variant of the for-each loop along with an additional state.
-  Each iteration of the body updates the state based on the value 
-  of the list, returning the updated state or a return value that
-  shortcuts past the remaining executions of the loop. If each of
-  the iterations return None, the [or_else] function computes the
-  return value. *)
-Ltac2 fold_each' (l : 'value list) (init : 'state)
-  (body : 'state -> 'value -> ('state, 'ret) sum) 
-  (or_else : 'state -> 'ret) : 'state * 'ret := 
-  fold_each l init (fun state value => 
-    match body state value with 
-    | OrL new_state => (new_state, None)
-    | OrR ret => (state, Some ret)
-    end) or_else.
-
-(* A "for each" loop from which the body can return, shortcutting
-  execution. Useful for executing the body at most once per value
-  of the list. If no iteration of the body returns, the [default]
-  function determines the return value. *)
-Ltac2 for_each (l : 'a list) (body : 'a -> 'ret option) 
-  (default : unit -> 'ret) : 'ret :=
-  snd (fold_each l () (fun () value => ((), body value)) default).
-
-(* A helper function to "continue" from within a [fold_each] body
-  to shortcut execution. Specifically, just takes a ['state] to a 
-  ['state * 'ret option] by using [None] as the second component. *)
-Ltac2 fold_continue (state : 'state) : 'state * 'ret option :=
-  (state, None).
-
-(* A helper function to "continue" within a [fold_each'] function
-  body to shortcut execution. Specifically, takes a ['state] to a 
-  [('state, 'ret) sum] by including in the left component. *)
-Ltac2 fold_continue' (state : 'state) : ('state, 'ret) sum :=
-  OrL state.
-
-(* A helper function to "continue" in a [for_each] body function.
-  Specifically, just returns [None] as a ['ret option]. *)
-Ltac2 for_continue : unit -> 'ret option :=
-  fun () => None.
-
-(* A helper function to "return" a value from a [fold_each] body.
-  It takes a ['state] and a ['ret] to a ['state * 'ret option] by
-  wrapping the latter in [Some]. *)
-Ltac2 fold_return (state : 'state) (ret : 'ret) : 'state * 'ret option :=
-  (state, Some ret).
-
-(* A helper function to "return" a value from a [fold_each'] body
-  to shortcut execution. Specifically, it takes a ['ret] value to 
-  a [('state, 'ret) sum] by inclusion in the second component. *)
-Ltac2 fold_return' (ret : 'ret) : ('state, 'ret) sum :=
-  OrR ret.
-
-(* A helper function to "return" from a [for_each] body iteration
-  to shortcut execution. Simply takes a ['ret] to a ['ret option]
-  by wrapping it in [Some]. *)
-Ltac2 for_return (ret : 'ret) : 'ret option :=
-  Some ret.
-
-Ltac2 continue : 'ret option := None.
-   
-End ListForEach.
-
-Import ListForEach.
+Import ListExtra.ListForEach.
 
 Ltac2 Type VType := string option.
 
@@ -145,7 +21,7 @@ Ltac2 Type 'a VData := {
   mutable out_edges : int FSet.t; (* out_edges *)
   mutable in_indices : int FSet.t; (* in_indices *)
   mutable out_indices : int FSet.t; (* out_indices *)
-  value : 'a option (* value *)
+  vvalue : 'a option (* value *)
 }.
 
 (* Ltac2 vtype : 'a VData -> VType :=
@@ -164,14 +40,14 @@ Ltac2 vout_indices : 'a VData -> int FSet.t :=
   fun vd => vd.(out_indices).
 
 Ltac2 vvalue : 'a VData -> 'a option :=
-  fun vd => vd.(value).
+  fun vd => vd.(vvalue).
 
 Ltac2 mk_vdata : 'a option -> 'a VData := fun a => {
   in_edges := FSet.empty FSet.Tags.int_tag;
   out_edges := FSet.empty FSet.Tags.int_tag;
   in_indices := FSet.empty FSet.Tags.int_tag;
   out_indices := FSet.empty FSet.Tags.int_tag;
-  value := a
+  vvalue := a
 }.
 
 Ltac2 mk_vdata_from ie oe ii oi : 'a option -> 'a VData := fun a => {
@@ -179,7 +55,7 @@ Ltac2 mk_vdata_from ie oe ii oi : 'a option -> 'a VData := fun a => {
   out_edges := oe;
   in_indices := ii;
   out_indices := oi;
-  value := a
+  vvalue := a
 }.
 
 Ltac2 vcopy (v : 'a VData) : 'a VData := {
@@ -187,8 +63,25 @@ Ltac2 vcopy (v : 'a VData) : 'a VData := {
   out_edges := v.(out_edges);
   in_indices := v.(in_indices);
   out_indices := v.(out_indices);
-  value := v.(value)
+  vvalue := v.(vvalue)
 }.
+
+Ltac2 vdata_equal (v_eq : 'a -> 'a -> bool) : 'a VData -> 'a VData -> bool :=
+  fun v v' => 
+  List.fold_right Bool.and [
+    FSet.equal (v.(in_edges)) (v'.(in_edges));
+    FSet.equal (v.(in_indices)) (v'.(in_indices));
+    FSet.equal (v.(out_edges)) (v'.(out_edges));
+    FSet.equal (v.(out_indices)) (v'.(out_indices));
+    Option.equal v_eq (v.(vvalue)) (v'.(vvalue))
+  ] true.
+
+
+Ltac2 vdata_is_orphan (vd : 'v VData) : bool :=
+  List.fold_right Bool.and [FSet.is_empty (vd.(in_edges));
+  FSet.is_empty (vd.(out_edges));
+  FSet.is_empty (vd.(in_indices));
+  FSet.is_empty (vd.(out_indices))] true.
 
 (* Import Printf. 
 Ltac2 Eval let v := mk_vdata (Some ()) in 
@@ -228,6 +121,14 @@ Ltac2 ecopy (ed : 'a EData) : 'a EData := {
   value := ed.(value)
 }.
 
+Ltac2 edata_equal (e_eq : 'e -> 'e -> bool) : 'e EData -> 'e EData -> bool :=
+  fun e e' => 
+  List.fold_right Bool.and [
+    List.equal Int.equal (e.(s)) (e'.(s));
+    List.equal Int.equal (e.(t)) (e'.(t));
+    Option.equal e_eq (e.(value)) (e'.(value))
+  ] true.
+
 Ltac2 Type ('v, 'e) Graph := {
   mutable vdata : (int, 'v VData) FMap.t;
   mutable edata : (int, 'e EData) FMap.t;
@@ -246,80 +147,120 @@ Ltac2 mk_graph : unit -> ('v, 'e) Graph := fun () => {
   _eindex := 0;
 }.
 
+Ltac2 mk_graph_from : (int, 'v VData) FMap.t -> (int, 'e EData) FMap.t -> 
+  int list -> int list -> int -> int -> ('v, 'e) Graph :=
+  fun vdata edata ins outs vidx eidx => {
+  vdata := vdata;
+  edata := edata;
+  _inputs := ins;
+  _outputs := outs;
+  _vindex := vidx;
+  _eindex := eidx;
+}.
+
+Ltac2 graph_equal (v_eq : 'v -> 'v -> bool) (e_eq : 'e -> 'e -> bool) : 
+  ('v, 'e) Graph -> ('v, 'e) Graph -> bool :=
+  fun g g' => List.fold_right Bool.and [
+    FMap.equal (vdata_equal v_eq) (g.(vdata)) (g'.(vdata));
+    FMap.equal (edata_equal e_eq) (g.(edata)) (g'.(edata));
+    List.equal Int.equal (g.(_inputs)) (g'.(_inputs));
+    List.equal Int.equal (g.(_outputs)) (g'.(_outputs))
+  ] true.
+
 Module GraphPrinting.
 
 Export Message Printf.
 
-Ltac2 print_sep_list sep (l : 'a list) (f : 'a -> string) : string :=
-  List.fold_right (fun a m =>
-    Message.to_string (fprintf "%s%s%s" (f a)
-    (if String.is_empty m then "" else sep) m)) l "".
+Export PrintingExtra.
 
-Ltac2 print_cs_list (l : 'a list) (f : 'a -> string) : string :=
-  print_sep_list ", " l f.
-
-Ltac2 print_sep_list' sep (l : 'a list) (f : 'a -> message) : message :=
-  List.fold_right (fun a m =>
-    Message.concat (f a) (Message.concat 
-    (if String.is_empty (Message.to_string m) then (fprintf "") else sep) m)) 
-    l (fprintf "").
-
-
-Ltac2 concats (ms : message list) : message :=
-  List.fold_right concat ms (of_string "").
-
-
-Ltac2 print_map (pr_k : 'k -> message) (pr_v : 'v -> message) : ('k, 'v) FMap.t -> message := 
-  fun m => concats [of_string "{" ; 
-  print_sep_list' (concat (of_string ",") (break 1 0)) 
-    (FMap.bindings m) (fun (k, v) => 
-    concats [pr_k k; of_string " : "; pr_v v])
-    ; of_string "}"].
-
-Ltac2 print_int_map m := print_map of_int of_int m.
-
-Ltac2 print_set (pr_v : 'v -> message) : 'v FSet.t -> message := 
-  fun s => concats [of_string "{" ; 
-  print_sep_list' (concat (of_string ",") (break 1 0)) 
-    (FSet.elements s) pr_v
-    ; of_string "}"].
-
-Ltac2 print_int_set m := print_set of_int m.
-
+Import PpExtra.
 
 Ltac2 print_graph (pr_v : 'v -> message) (pr_e : 'e -> message)
   (g : ('v, 'e) Graph) : message :=
   vbox 2 (concats [of_string "Graph with" ; break 1 0 ; 
     vbox 2 (concats [of_string "Vertices:" ; break 1 0 ;
-      print_sep_list' (concat (of_string ",") (break 1 0))
-      (FMap.bindings (g.(vdata)))
+      prlist_with_sep pr_comma
       (fun (v, vd) => 
         hbox (concats [of_int v; of_string " (";
         Option.map_default pr_v (of_string "None") (vvalue vd);
-        of_string ")"])) ]) ; 
+        of_string ")"]))
+      (FMap.bindings (g.(vdata))) ]) ; 
     break 1 0;
     vbox 2 (concats [of_string "Edges:" ; break 1 0 ;
-      print_sep_list' (concat (of_string ",") (break 1 0))
-      (FMap.bindings (g.(edata)))
+      prlist_with_sep pr_comma
       (fun (e, ed) => 
         hbox (concats [of_int e; of_string " (";
         Option.map_default pr_e (of_string "None") (ed.(value));
         of_string ") :"; break 1 2; 
-          of_string "[" ;
-          print_sep_list' (of_string ", ") (ed.(s)) of_int;
-          of_string "]"; break 1 2; of_string "-> [";
-          print_sep_list' (of_string ", ") (ed.(t)) of_int;
-          of_string "]"]))]) ; 
+          of_list int (ed.(s)) ++ spc() ++ str "->" ++ spc () ++
+          of_list int (ed.(t))]))
+      (FMap.bindings (g.(edata)))]) ; 
     break 1 0 ;
     vbox 2 (concats [of_string "Inputs:" ; break 1 0 ;
-      hbox (print_sep_list' (concat (of_string ",") (break 1 0))
-      (g.(_inputs)) of_int) ]) ; 
+      hbox (prlist_with_sep pr_comma int (g.(_inputs))) ]) ; 
     break 1 0 ;
     vbox 2 (concats [of_string "Outputs:" ; break 1 0 ;
-      hbox (print_sep_list' (concat (of_string ",") (break 1 0))
-      (g.(_outputs)) of_int) ])]).
+      hbox (prlist_with_sep pr_comma int (g.(_outputs))) ])]).
 
 Ltac2 print_int_graph g := print_graph of_int of_int g.
+Ltac2 print_string_graph g := print_graph of_string of_string g.
+
+
+
+Ltac2 pr_edge_to_parse (pr_e : 'e -> message) (e : int) (ed : 'e EData) : message :=
+  hov 2 (concats [Option.map_default pr_e (str "") (ed.(value)); spc(); 
+    str "("; int e; str ")"; spc(); pr_colon();
+    prlist_with_sep pr_comma int (ed.(s)); spc(); str "->"; spc();
+    prlist_with_sep pr_comma int (ed.(t))]).
+
+Ltac2 pr_graph_nice (* (pr_v : 'v -> message) *) (pr_e : 'e -> message) 
+  (g : ('v, 'e) Graph) : message := 
+  let orphans := List.map_filter (fun (v, vd) =>
+    if vdata_is_orphan vd then Some v else None) (FMap.bindings (g.(vdata))) in 
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let pr_semicolon () := concats [of_string ";"; break 1 0] in 
+  let hov := hovbox in 
+  let spc () := break 1 0 in
+  let int := of_int in 
+  let str := of_string in 
+  hov 2 (concats [str "!Graph"; spc(); 
+    prlist_with_sep pr_comma int (g.(_inputs)) ; spc(); str "->"; spc();
+    prlist_with_sep pr_comma int (g.(_outputs)); spc(); str ":" ; spc(); 
+
+    prlist_with_sep pr_semicolon (fun (e, ed) => pr_edge_to_parse pr_e e ed)
+      (FMap.bindings (g.(edata)));
+
+    if List.is_empty orphans then spc() else 
+      concats [spc(); str "and"; spc(); prlist_with_sep pr_comma int orphans]]).
+
+
+
+Ltac2 pr_vdata (pr_v : 'v -> message) (vd : 'v VData) : message :=
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let hov := hovbox in 
+  let spc () := break 1 0 in
+  let str := of_string in 
+  (* let quote m := concats [str  ] *)
+  hov 2 (concats [str "VData with"; spc(); str "{"; 
+    str "value = "; (* quote *) 
+      (Option.map_default pr_v (str "") (vd.(vvalue))); pr_comma();
+    str "in_edges = "; pr_int_set (vd.(in_edges)); pr_comma();
+    str "out_edges = "; pr_int_set (vd.(out_edges)); pr_comma();
+    str "in_indices = "; pr_int_set (vd.(in_indices)); pr_comma();
+    str "out_indices = "; pr_int_set (vd.(out_indices)); str "}"]).
+
+Ltac2 pr_edata (pr_e : 'e -> message) (ed : 'e EData) : message :=
+  let pr_comma () := concats [of_string ","; break 1 0] in 
+  let hov := hovbox in 
+  let spc () := break 1 0 in
+  let str := of_string in 
+  (* let quote m := concats [str  ] *)
+  hov 2 (concats [
+  str "EData with"; spc(); str "{"; 
+      str "value = "; (Option.map_default pr_e (str "") (ed.(value))); 
+      pr_comma();
+      str "s = "; pr_int_list (ed.(s)); pr_comma();
+      str "t = "; pr_int_list (ed.(t)); str "}"]).
 
 End GraphPrinting.
 
@@ -422,20 +363,21 @@ Ltac2 set_outputs : ('v, 'e) Graph -> int list -> unit :=
       vd.(out_indices) := FSet.add i (vd.(out_indices))) 
     (List.enumerate (g.(_outputs))) ().
 
-Ltac2 add_vertex : ('v, 'e) Graph -> 'v option -> int -> int :=
+Ltac2 add_vertex : ('v, 'e) Graph -> 'v option -> int option -> int :=
   fun g value name => 
   let (v, max_index) := 
-    if Int.equal name (-1) then (g.(_vindex), g.(_vindex)) 
-      else (name, max name (g.(_vindex))) in
+    Option.map_default (fun name => (name, max name (g.(_vindex))))
+      (g.(_vindex), g.(_vindex)) name in 
   g.(_vindex) := Int.add max_index 1;
   g.(vdata) := FMap.add v (mk_vdata value) (g.(vdata));
   v.
 
-Ltac2 add_edge : ('v, 'e) Graph -> int list -> int list -> 'e option -> int -> int :=
+Ltac2 add_edge : ('v, 'e) Graph -> int list -> int list -> 'e option -> 
+  int option -> int :=
   fun g s t value name => 
   let (e, max_index) := 
-    if Int.equal name (-1) then (g.(_eindex), g.(_eindex)) 
-      else (name, max name (g.(_eindex))) in
+    Option.map_default (fun name => (name, max name (g.(_eindex))))
+      (g.(_eindex), g.(_eindex)) name in 
   g.(_eindex) := Int.add max_index 1;
   g.(edata) := FMap.add e (mk_edata s t value) (g.(edata));
 
@@ -563,7 +505,7 @@ Ltac2 explode_vertex : ('v, 'e) Graph -> int -> int list * int list :=
   let new_vs : int list ref * int list ref := (Ref.ref [], Ref.ref []) in 
   let vd := vertex_data g v in 
   let fresh (j : bool) : int :=
-    let v1 := add_vertex g (vvalue vd) (-1)  in 
+    let v1 := add_vertex g (vvalue vd) None  in 
     Ref.update 
       (if j then fst new_vs else snd new_vs) 
       (fun vs => List.append vs [v1]);
@@ -608,7 +550,7 @@ Ltac2 explode_vertex : ('v, 'e) Graph -> int -> int list * int list :=
 
 Ltac2 insert_id_after (g : ('v, 'e) Graph) (v : int) (reverse : bool) : int := 
   let vd := vertex_data g v in 
-  let w := add_vertex g (vvalue vd) (-1) in 
+  let w := add_vertex g (vvalue vd) None in 
   let wd := vertex_data g w in 
   let replace_v_w := (fun x => if Int.equal x v then w else x) in 
   set_outputs g 
@@ -622,20 +564,20 @@ Ltac2 insert_id_after (g : ('v, 'e) Graph) (v : int) (reverse : bool) : int :=
   vd.(out_edges) := FSet.empty FSet.Tags.int_tag;
 
   let (s, t) := if reverse then ([w], [v]) else ([v], [w]) in 
-  let e := add_edge g s t None (-1) in 
+  let e := add_edge g s t None None in 
   e.
 
 Ltac2 tensor (g : ('v, 'e) Graph) (other : ('v, 'e) Graph) :=
   let vmap : (int, int) FMap.t := 
     List.fold_right (fun v vmap => 
       let vd := vertex_data other v in 
-      FMap.add v (add_vertex g (vvalue vd) -1) vmap
+      FMap.add v (add_vertex g (vvalue vd) None) vmap
       ) (vertices other) (FMap.empty FSet.Tags.int_tag) in
     
   List.fold_right (fun e () => 
     let ed := edge_data other e in 
     let _ := add_edge g (List.map (FMap.lookup vmap) (ed.(s)))
-      (List.map (FMap.lookup vmap) (ed.(t))) (ed.(value)) (-1) in 
+      (List.map (FMap.lookup vmap) (ed.(t))) (ed.(value)) None in 
     ()
     ) (edges other) ();
   
@@ -661,13 +603,13 @@ Ltac2 compose (g : ('v, 'e) Graph) (other : ('v, 'e) Graph) :=
   let vmap : (int, int) FMap.t := 
     List.fold_right (fun v vmap => 
       let vd := vertex_data other v in 
-      FMap.add v (add_vertex g (vvalue vd) -1) vmap
+      FMap.add v (add_vertex g (vvalue vd) None) vmap
       ) (vertices other) (FMap.empty FSet.Tags.int_tag) in
     
   List.fold_right (fun e () => 
     let ed := edge_data other e in 
     let _ := add_edge g (List.map (FMap.lookup vmap) (ed.(s)))
-      (List.map (FMap.lookup vmap) (ed.(t))) (ed.(value)) (-1) in 
+      (List.map (FMap.lookup vmap) (ed.(t))) (ed.(value)) None in 
     ()
     ) (edges other) ();
   
@@ -727,9 +669,9 @@ Ltac2 edge_codomain (g : ('v, 'e) Graph) (edge_id : int) : unit list :=
 Ltac2 gen (value : 'e option) (domain : unit list) (codomain : unit list) : 
   ('v, 'e) Graph :=
   let g := mk_graph () in 
-  let inputs := List.map (fun _ => add_vertex g None (-1)) domain in 
-  let outputs := List.map (fun _ => add_vertex g None (-1)) codomain in 
-  let _ := add_edge g inputs outputs value (-1) in 
+  let inputs := List.map (fun _ => add_vertex g None None) domain in 
+  let outputs := List.map (fun _ => add_vertex g None None) codomain in 
+  let _ := add_edge g inputs outputs value None in 
   set_inputs g inputs;
   set_outputs g outputs;
   g.
@@ -742,7 +684,7 @@ Ltac2 perm (p : int list) (domain : unit list) : ('a, 'b) Graph :=
     (Message.of_string "Domain does not match length of permutation.")))
   else
 
-  let inputs := List.map (fun _ => add_vertex g None (-1)) domain in 
+  let inputs := List.map (fun _ => add_vertex g None None) domain in 
   let outputs := List.map (fun i => List.nth inputs (List.nth p i))
     (List.range 0 num_wires) in 
   set_inputs g inputs;
@@ -752,7 +694,7 @@ Ltac2 perm (p : int list) (domain : unit list) : ('a, 'b) Graph :=
 Ltac2 identity : unit -> ('v, 'e) Graph :=
   fun () => 
   let g := mk_graph () in 
-  let v := add_vertex g None (-1) in 
+  let v := add_vertex g None None in 
   set_inputs g [v];
   set_outputs g [v];
   g.
@@ -786,6 +728,18 @@ Ltac2 Type ('v, 'e) Match := {
   mutable edge_image : int FSet.t;
 }.
 
+Ltac2 match_equal (v_eq : 'v -> 'v -> bool) (e_eq : 'e -> 'e -> bool) : 
+  ('v, 'e) Match -> ('v, 'e) Match -> bool :=
+  fun m m' => 
+  List.fold_right Bool.and [
+    graph_equal v_eq e_eq (m.(domain)) (m'.(domain));
+    graph_equal v_eq e_eq (m.(codomain)) (m'.(codomain));
+    FMap.equal Int.equal (m.(vertex_map)) (m'.(vertex_map));
+    FMap.equal Int.equal (m.(edge_map)) (m'.(edge_map));
+    FSet.equal (m.(vertex_image)) (m'.(vertex_image));
+    FSet.equal (m.(edge_image)) (m'.(edge_image))
+  ] true.
+
 Ltac2 mk_match (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) 
   (edge_eq : 'e -> 'e -> bool) : ('v, 'e) Match := {
   domain := domain;
@@ -795,6 +749,17 @@ Ltac2 mk_match (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph)
   vertex_image := FSet.empty FSet.Tags.int_tag;
   edge_map := FMap.empty FSet.Tags.int_tag;
   edge_image := FSet.empty FSet.Tags.int_tag
+}.
+
+Ltac2 mk_match_from (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) 
+  (edge_eq : 'e -> 'e -> bool) vm vi em ei : ('v, 'e) Match := {
+  domain := domain;
+  codomain := codomain;
+  edge_eq := edge_eq;
+  vertex_map := vm;
+  vertex_image := vi;
+  edge_map := em;
+  edge_image := ei;
 }.
 
 Ltac2 mcopy_deep (m : ('v, 'e) Match) : ('v, 'e) Match := {
@@ -843,15 +808,24 @@ Ltac2 print_match_full (pr_v : 'v -> message)
 
 End Printing.
 
-Ltac2 try_add_vertex (m : ('v, 'e) Match) (domain_vertex : int) 
+Ltac2 try_add_vertex (v_eq : 'v -> 'v -> bool)
+  (m : ('v, 'e) Match) (domain_vertex : int) 
   (codomain_vertex : int) : bool :=
+  let _brks (l : message list) : message := 
+    PrintingExtra.Pp.prlist_with_sep (fun () => Message.break 1 2) (fun x => x) l in 
+  let mapstr := Message.to_string (fprintf "%i -> %i" domain_vertex codomain_vertex) in 
   match_log (fprintf "Trying to add vertex %i -> %i to match:" 
     domain_vertex codomain_vertex);
+
+  let dvalue := (vertex_data (m.(domain)) domain_vertex).(vvalue) in
+  let cdvalue := (vertex_data (m.(codomain)) codomain_vertex).(vvalue) in
+  if Bool.neg (Option.equal v_eq dvalue cdvalue) then 
+    match_log (fprintf "Vertex %s failed: values did not match; discarding." mapstr); false else 
   
   if FSet.mem domain_vertex (FMap.domain (m.(vertex_map))) then 
     match_log (fprintf "Vertex already mapped to %i"
       (FMap.lookup (m.(vertex_map)) domain_vertex));
-    Int.equal (FMap.lookup (m.(vertex_map)) domain_vertex) codomain_vertex else
+    Option.equal Int.equal (FMap.find_opt domain_vertex (m.(vertex_map))) (Some codomain_vertex) else
   
   (* check types... *)
 
@@ -859,7 +833,7 @@ Ltac2 try_add_vertex (m : ('v, 'e) Match) (domain_vertex : int)
 
   if Bool.and (is_boundary (m.(codomain)) codomain_vertex) 
     (Bool.neg (is_boundary (m.(domain)) domain_vertex)) then 
-    match_log (fprintf "Vertex faile: codomain vertex is boundary but domain vertex is not.");
+    match_log (fprintf "Vertex failed: codomain vertex is boundary but domain vertex is not.");
     false else
   
   let b := if FSet.mem codomain_vertex (m.(vertex_image)) then 
@@ -894,7 +868,7 @@ Ltac2 try_add_vertex (m : ('v, 'e) Match) (domain_vertex : int)
   match_log (fprintf "Vertex success.");
   true).
 
-Ltac2 try_add_edge (m : ('v, 'e) Match) 
+Ltac2 try_add_edge (v_eq : 'v -> 'v -> bool) (m : ('v, 'e) Match) 
   (domain_edge : int) (codomain_edge : int) : bool :=
   match_log (fprintf "Trying to add edge %i -> %i to match:" 
     domain_edge codomain_edge);
@@ -935,13 +909,15 @@ Ltac2 try_add_edge (m : ('v, 'e) Match)
     (List.append codomain_sources codomain_targets) in 
   
   let b := List.fold_right (fun (domain_vertex, codomain_vertex) b => 
-    if Bool.and (FSet.mem domain_vertex (FMap.domain (m.(vertex_map))))
-      (Bool.neg (Int.equal (FMap.lookup (m.(vertex_map)) domain_vertex) 
-        codomain_vertex)) then 
+    if (FSet.mem domain_vertex (FMap.domain (m.(vertex_map)))) then
+      if (Bool.neg (Option.equal Int.equal (FMap.find_opt domain_vertex (m.(vertex_map))) 
+          (Some codomain_vertex))) then 
         match_log (fprintf "Edge failed: inconsistent with previously mapped vertex.");
         false
+      else 
+        b
     else 
-      if Bool.neg (try_add_vertex m domain_vertex codomain_vertex) then 
+      if Bool.neg (try_add_vertex v_eq m domain_vertex codomain_vertex) then 
         match_log (fprintf "Edge failed: couldn't add a source or target vertex");
         false
       else b)
@@ -1004,7 +980,7 @@ Ltac2 map_scalars (m : ('v, 'e) Match) : bool :=
       continue
     ) (fun () => true).
 
-Ltac2 more (m : ('v, 'e) Match) : ('v, 'e) Match list :=
+Ltac2 more v_eq (m : ('v, 'e) Match) : ('v, 'e) Match list :=
   let extended_matches : ('v, 'e) Match list ref := Ref.ref [] in 
   for_each (FSet.elements (FMap.domain (m.(vertex_map)))) (* TODO: Test performance of this versus FMap.elements *)
     (fun domain_vertex => 
@@ -1020,7 +996,7 @@ Ltac2 more (m : ('v, 'e) Match) : ('v, 'e) Match list :=
       (for_each (FSet.elements (in_edges (m.(codomain)) codomain_vertex))
         (fun codomain_edge => 
         let potential_new_match := mcopy m in 
-        if try_add_edge potential_new_match edge codomain_edge then 
+        if try_add_edge v_eq potential_new_match edge codomain_edge then 
           Ref.update extended_matches 
             (fun em => List.cons potential_new_match em);
           continue
@@ -1035,7 +1011,7 @@ Ltac2 more (m : ('v, 'e) Match) : ('v, 'e) Match list :=
       (for_each (FSet.elements (in_edges (m.(codomain)) codomain_vertex))
         (fun codomain_edge => 
         let potential_new_match := mcopy m in 
-        if try_add_edge potential_new_match edge codomain_edge then 
+        if try_add_edge v_eq potential_new_match edge codomain_edge then 
           Ref.update extended_matches 
             (fun em => List.cons potential_new_match em);
           continue
@@ -1051,7 +1027,7 @@ Ltac2 more (m : ('v, 'e) Match) : ('v, 'e) Match list :=
       for_each (vertices (m.(codomain))) 
       (fun codomain_vertex => 
         let potential_new_match := mcopy m in 
-        if try_add_vertex potential_new_match domain_vertex codomain_vertex then 
+        if try_add_vertex v_eq potential_new_match domain_vertex codomain_vertex then 
           Ref.update extended_matches 
             (fun em => List.cons potential_new_match em);
           continue
@@ -1113,7 +1089,18 @@ Ltac2 mk_matches (edge_eq : 'e -> 'e -> bool)
     [initial_match] else []
 }.
 
-Ltac2 rec next_match (ms : ('v, 'e) Matches) : 
+Ltac2 mk_matches_from_stack
+  (ms : ('v, 'e) Match list) : ('v, 'e) Matches option :=
+  match ms with 
+  | [] => None
+  | m::ms' => Some {
+    convex := false;
+    initial_match := m;
+    match_stack := (m::ms');
+    }
+  end.
+
+Ltac2 rec next_match v_eq (ms : ('v, 'e) Matches) : 
   ('v, 'e) Match option :=
   if List.is_empty (ms.(match_stack)) then None else
   let m := List.hd (ms.(match_stack)) in 
@@ -1126,26 +1113,39 @@ Ltac2 rec next_match (ms : ('v, 'e) Matches) :
         Some m
       else
         (match_log (fprintf "match is not convex, dropping");
-        next_match ms)
+        next_match v_eq ms)
     else
       Some m
   else
-    (ms.(match_stack) := List.append (ms.(match_stack)) (more m);
-    next_match ms).
+    (ms.(match_stack) := List.append (ms.(match_stack)) (more v_eq m);
+    next_match v_eq ms).
 
 (* Return the iterable of [Match]es of a [Matches] as a backtracking value *)
-Ltac2 rec get_match (ms : ('v, 'e) Matches) : ('v, 'e) Match :=
-  match next_match ms with 
+Ltac2 rec get_match v_eq (ms : ('v, 'e) Matches) : ('v, 'e) Match :=
+  match next_match v_eq ms with 
   | None => Control.zero (Invalid_argument (Some (fprintf "No more matches")))
-  | Some m => Control.plus (fun () => m) (fun _ => get_match ms)
+  | Some m => Control.plus (fun () => m) (fun _ => get_match v_eq ms)
   end.
 
 (* Return the iterable of [Match]es of a [Matches] as a list *)
 Ltac2 rec get_matches
-  (ms : ('v, 'e) Matches) : ('v, 'e) Match list :=
-  match next_match ms with 
+  v_eq (ms : ('v, 'e) Matches) : ('v, 'e) Match list :=
+  match next_match v_eq ms with 
   | None => []
-  | Some m => List.cons m (get_matches ms)
+  | Some m => List.cons m (get_matches v_eq ms)
   end.
 
   
+Ltac2 match_graph (v_eq : 'v -> 'v -> bool ) (edge_eq : 'e -> 'e -> bool) 
+  (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) : ('v, 'e) Match list :=
+  get_matches v_eq (mk_matches edge_eq domain codomain None false).
+
+Ltac2 find_iso (v_eq : 'v -> 'v -> bool) (edge_eq : 'e -> 'e -> bool) 
+  (domain : ('v, 'e) Graph) (codomain : ('v, 'e) Graph) : ('v, 'e) Match option :=
+  if Bool.neg (Bool.and 
+    (Int.equal (num_vertices domain) (num_vertices codomain))
+    (Int.equal (num_edges domain) (num_edges codomain))) then None else
+  List.find_opt is_surjective (match_graph v_eq edge_eq domain codomain).
+
+
+

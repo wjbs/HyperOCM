@@ -1,5 +1,6 @@
 Require Import HyperOCM.hypergraph.
 Require Import FSetExtra.
+Require Import ListExtra.
 
 
 (* Require ComplexSum. *)
@@ -119,6 +120,7 @@ Ltac2 Type TensorList := {
 
 Module Printing.
 Export hypergraph.Printing.
+Import Pp.
 
 Ltac2 rec print_tensorexpr (t : TensorExpr) : message :=
   (* TODO: Make better with spacing, and pretty-printing with a context *)
@@ -144,12 +146,12 @@ Ltac2 rec print_tensorlist (t : TensorList) : message :=
     concats [fprintf "K_[%i]^[%i]" a b; break 1 0; m]) (t.(contractions)) (
   List.fold_right (fun (_ty, a, b) m => 
     concats [fprintf "δ_[%i]^[%i] ⋅ " a b; break 0 0; m]) (t.(deltas)) (
-  (print_sep_list' (concat (of_string " ⋅") (break 1 0)) (t.(abstracts))
+  (prlist_with_sep (fun () => str " ⋅" ++ spc()) 
     (fun (abs_idx, lower, upper) => 
       let pr_typair := (fun (_ty, var) => Message.to_string (fprintf "%i" var)) in
       fprintf "φ[%i]_[%s]^[%s]" abs_idx
         (print_cs_list lower pr_typair) (print_cs_list upper pr_typair)
-    ))
+    ) (t.(abstracts)))
   ))).
 
 End Printing.
@@ -925,7 +927,7 @@ Ltac2 tensor_list_to_hypergraph (t : TensorList) : (TypeIdx, AbsIdx) Graph :=
   let g := mk_graph () in 
   (* First, add a vertex for each contraction, recording their indices *)
   let cs_map := List.map (fun (ty, a, b) => 
-    let i := add_vertex g (Some ty) (-1) in 
+    let i := add_vertex g (Some ty) None in 
     (i, (ty, a, b))) (t.(contractions)) in 
   (* Then, for each abstract tensor, add a hyperedge, adding vertices for
     each free index, recording them in [in_verts] and [out_verts] as we do
@@ -942,7 +944,7 @@ Ltac2 tensor_list_to_hypergraph (t : TensorList) : (TypeIdx, AbsIdx) Graph :=
         | Some (i, _) => (* Found a matching vertex; add it to the source vertex list *)
           (ins, List.append s [i])
         | None => (* No matching vertex means this is a free index; add it as a vertex marked to be made an input *)
-          let i := add_vertex g (Some ty) (-1) in 
+          let i := add_vertex g (Some ty) None in 
           (List.cons i ins, List.append s [i])
         end) lower ([], []) in 
       (* Next, do the same for the target/upper vertices *)
@@ -955,11 +957,11 @@ Ltac2 tensor_list_to_hypergraph (t : TensorList) : (TypeIdx, AbsIdx) Graph :=
         | Some (i, _) => (* Found a matching vertex; add it to the source vertex list *)
           (outs, List.append t [i])
         | None => (* No matching vertex means this is a free index; add it as a vertex marked to be made an input *)
-          let i := add_vertex g (Some ty) (-1) in 
+          let i := add_vertex g (Some ty) None in 
           (List.cons i outs, List.append t [i])
         end) upper ([], []) in
       (* Now, we can add the edge to the graph *) 
-      let e := add_edge g s t (Some abs_idx) (-1) in
+      let e := add_edge g s t (Some abs_idx) None in
       (* Finally, record the new input / output vertices we'll need to mark, 
       along with the edge index of this edge *)
       (List.append new_ins ins, List.append new_outs outs, 
@@ -969,10 +971,10 @@ Ltac2 tensor_list_to_hypergraph (t : TensorList) : (TypeIdx, AbsIdx) Graph :=
   let (delta_ins, delta_outs, _delta_es) := List.fold_right 
     (fun (ty, _a, _b) (dins, douts, des) => 
     (* Make input and output vertices *)
-    let a_idx := add_vertex g (Some ty) (-1) in 
-    let b_idx := add_vertex g (Some ty) (-1) in 
+    let a_idx := add_vertex g (Some ty) None in 
+    let b_idx := add_vertex g (Some ty) None in 
     (* Make an edge for the delta with these as source and target *)
-    let e_idx := add_edge g [a_idx] [b_idx] None (-1) in 
+    let e_idx := add_edge g [a_idx] [b_idx] None None in 
     (* Record the new values *)
     (List.append dins [a_idx], List.append douts [b_idx], List.append des [e_idx])
     ) (t.(deltas)) ([], [], []) in 
@@ -1059,9 +1061,9 @@ Ltac2 test_graph (ub : int) : (TypeIdx, AbsIdx) Graph :=
   let g := mk_graph () in 
   let rnge := List.range 0 ub in 
   let _verts := List.map (fun i => 
-    add_vertex g (Some (Int.div i 2)) (-1)) rnge in
+    add_vertex g (Some (Int.div i 2)) None) rnge in
   let _edges := List.map (fun i => 
-    add_edge g (List.firstn i rnge) (List.skipn i rnge) (Some i) (-1)) rnge in
+    add_edge g (List.firstn i rnge) (List.skipn i rnge) (Some i) None) rnge in
   g.
 
 Ltac2 test_tensorlist (ub : int) : TensorList :=
@@ -1072,13 +1074,13 @@ Ltac2 test_tensorexpr (ub : int) : TensorExpr :=
 
 (* Testing tensor_expression_to_simplified: *)
   (* First, the initial tensorlist: *)
-  Ltac2 Eval Message.print (print_tensorlist (
-            (test_tensorlist 5))).
+  (* Ltac2 Eval Message.print (print_tensorlist (
+            (test_tensorlist 5))). *)
   (* Then, the tensorlist having been made an expression: *)
-  Ltac2 Eval Message.print (print_tensorlist (
+  (* Ltac2 Eval Message.print (print_tensorlist (
     tensor_expression_to_simplified (
           tensor_expr_of_tensor_list
-          (test_tensorlist 5)))).
+          (test_tensorlist 5)))). *)
 
 
 (* Performance of this test was quadratic: 
@@ -1094,12 +1096,12 @@ Ltac2 test_tensorexpr (ub : int) : TensorExpr :=
 
 
 
-Ltac2 Eval 
+(* Ltac2 Eval 
   Message.print (print_int_graph (test_graph 5)).
 
 Ltac2 Eval Message.print (print_int_graph
     (tensor_list_to_hypergraph 
-    (hypergraph_to_tensor_list (test_graph 5)))).
+    (hypergraph_to_tensor_list (test_graph 5)))). *)
 
 (* Set Ltac2 Backtrace.
 
