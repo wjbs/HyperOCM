@@ -83,10 +83,16 @@ Ltac2 notest () : t :=
 
 Ltac2 seq : t -> t -> t := fun test1 test2 => 
   fun info warn err () => 
-  Bool.and (test1 info warn err ()) (test2 info warn err ()).
+  match test1 info warn err () with 
+  | true => test2 info warn err ()
+  | false => false
+  end.
 
 Ltac2 seqs : t list -> t := fun tests => 
   List.fold_right seq tests (notest ()).
+
+Ltac2 foreach (l : 'a list) (f : 'a -> t) : t :=
+  seqs (List.map f l).
 
 (* Returns the boolean value, printing the message if the value is false *)
 Ltac2 with_err (pr : message -> unit) (m : message) (b : bool) : bool :=
@@ -102,6 +108,84 @@ Ltac2 with_errs (pr : message -> unit) (s : string) (b : bool) : bool :=
   | false => pr (Message.of_string s); false
   end.
 
+Import PpExtra.
+
+(* Tests that an optional value is Some, and satisfies a condition, 
+  using a printer for better info/error messages *)
+Ltac2 opt_is_some_suchthat_pr (pr : 'a -> message) (on_err : string) 
+  (test : 'a -> bool) (test_val : 'a option) : t :=
+  fun info _warn err () =>
+  match test_val with 
+  | None => let err_msg := str "Value was None," ++ spc() ++ 
+    str "not Some! Message" ++ pr_colon() ++ str on_err in 
+    err err_msg;
+    false
+  | Some v => 
+    info (str "Value was Some" ++ spc() ++ pr v);
+    let err_msg := str "Value" ++ spc() ++ pr v ++ spc() ++
+      str "did not sasisfy" ++spc() ++
+      str "condition. Message" ++ pr_colon() ++ str on_err in 
+    with_err err err_msg (test v)
+  end.
+
+(* Tests that an optional value is Some,
+  using a printer for better info/error messages *)
+Ltac2 opt_is_some_pr (pr : 'a -> message) (on_err : string) 
+  (test_val : 'a option) : t :=
+  opt_is_some_suchthat_pr pr on_err (fun _ => true) test_val.
+
+(* Tests that an optional value is None, 
+  using a printer for better info/error messages *)
+Ltac2 opt_is_none_pr (pr : 'a -> message) (on_err : string) 
+  (test_val : 'a option) : t :=
+  fun info _warn err () =>
+  match test_val with 
+  | None => true
+  | Some v => 
+    info (str "Value was Some" ++ spc() ++ pr v);
+    let err_msg := str "Value Some" ++ spc() ++ pr v ++ spc() ++
+      str "was Some," ++spc() ++
+      str "not none. Message" ++ pr_colon() ++ str on_err in 
+    err err_msg;
+    false
+  end.
+
+
+(* Tests that an optional value is Some and satisfies a condition *)
+Ltac2 opt_is_some_suchthat (on_err : string) 
+  (test : 'a -> bool) (test_val : 'a option) : t :=
+  fun _info _warn err () =>
+  match test_val with 
+  | None => let err_msg := str "Value was None," ++ spc() ++ 
+    str "not Some! Message" ++ pr_colon() ++ str on_err in 
+    err err_msg;
+    false
+  | Some v => 
+    let err_msg := str "Value was Some, but" ++ spc() ++ 
+      str "did not sasisfy" ++spc() ++
+      str "condition. Message" ++ pr_colon() ++ str on_err in 
+    with_err err err_msg (test v)
+  end.
+
+(* Tests that an optional value is Some *)
+Ltac2 opt_is_some (on_err : string) 
+  (test_val : 'a option) : t :=
+  opt_is_some_suchthat on_err (fun _ => true) test_val.
+
+(* Tests that an optional value is None *)
+Ltac2 opt_is_none (on_err : string) 
+  (test_val : 'a option) : t :=
+  fun _info _warn err () =>
+  match test_val with 
+  | None => true
+  | Some _ => 
+    let err_msg := str "Value was Some," ++ spc() ++ 
+      str "not none. Message" ++ pr_colon() ++ str on_err in 
+    err err_msg;
+    false
+  end.
+
+(* TODO: Change order of ops *)
 (* Tests two values for equality, using a printer for better info/error messages *)
 Ltac2 value_eq_pr (eq : 'a -> 'a -> bool) (pr : 'a -> message)
   (expected : unit -> 'a) (test_val : unit -> 'a) (on_err : string) : t :=
@@ -134,6 +218,27 @@ Ltac2 value_eq (eq : 'a -> 'a -> bool)
     (Message.of_string on_err) in
   with_err err err_msg res.
 
+(* Tests two unthunked values for equality, using a printer for better info/error messages *)
+Ltac2 value_eqv_pr (eq : 'a -> 'a -> bool) (pr : 'a -> message)
+  (on_err : string) (expected : 'a) (test_val : 'a) : t :=
+  value_eq_pr eq pr (fun () => expected) (fun () => test_val) on_err.
+
+(* Tests two unthunked values for equality *)
+Ltac2 value_eqv (eq : 'a -> 'a -> bool)
+  (on_err : string) (expected : 'a) (test_val : 'a) : t :=
+  value_eq eq (fun () => expected) (fun () => test_val) on_err.
+
+(* Tests two optional values for equality *)
+Ltac2 opt_eq (eq : 'a -> 'a -> bool)
+  (on_err : string)
+  (expected : unit -> 'a option) (test_val : unit -> 'a option) : t :=
+  value_eq (Option.equal eq) test_val expected on_err.
+
+(* Tests two optional values for equality, using a printer for better info/error messages *)
+Ltac2 opt_eq_pr (eq : 'a -> 'a -> bool) (pr : 'a -> message) (on_err : string)
+  (expected : unit -> 'a option) (test_val : unit -> 'a option) : t :=
+  value_eq_pr (Option.equal eq) (Pp.pr_opt pr) test_val expected on_err.
+
 (* Tests two ints for equality *)
 Ltac2 int_eq 
   (on_err : string)
@@ -158,6 +263,23 @@ Ltac2 int_list_eq
   (expected : unit -> int list) (test_val : unit -> int list) : t :=
   value_eq_pr (List.equal Int.equal)
   (of_list Message.of_int) test_val expected on_err.
+
+(* Tests two unthunked optional values for equality *)
+Ltac2 opt_eqv (eq : 'a -> 'a -> bool)
+  (on_err : string)
+  (expected : 'a option) (test_val : 'a option) : t :=
+  value_eq (Option.equal eq) (fun () => test_val) (fun () => expected) on_err.
+
+(* Tests two unthunked optional values for equality, using a printer for better info/error messages *)
+Ltac2 opt_eqv_pr (eq : 'a -> 'a -> bool) (pr : 'a -> message) (on_err : string)
+  (expected : 'a option) (test_val : 'a option) : t :=
+  value_eq_pr (Option.equal eq) (Pp.pr_opt pr) (fun () => test_val) (fun () => expected) on_err.
+
+(* Tests two unthunked optional ints for equality *)
+Ltac2 int_opt_eqv 
+  (on_err : string)
+  (expected : int option) (test_val : int option) : t :=
+  opt_eqv_pr Int.equal Pp.int on_err expected test_val.
 
 (* Tests two unthunked ints for equality *)
 Ltac2 int_eqv 
