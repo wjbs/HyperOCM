@@ -185,10 +185,8 @@ Ltac2 hypergraph_to_tensor_list (g : Graph.t)
   (* Finally, put together the [TensorList] and return the other data *)
   {sums := sums; abstracts := abs}, inputs', outputs', vertex_map, edge_map.
 
-
+  
 Module Testing.
-
-
 
 Import hypercaml_testing.caml_test_graphs.
 
@@ -292,6 +290,232 @@ Ltac2 Eval UTest.asserts UTest.noprint (tensor_tests ()).
 
 
 End Testing.
+
+
+
+
+
+
+
+
+
+
+(* Given a list of values and a sublist thereof, computes a 
+  permutation function such that reordering the list by that 
+  permutation exposes the sublist as an intial segment. 
+  Works only with non-duplicate lists.
+
+  For example, if [l] is a list of which [subl] is sublist, 
+  meaning every element of [subl] appears in [l], then if 
+  [f := bring_to_front_perm l subl], the list 
+  [List.map (fun (i, _) => List.nth l (f i)) (List.enumerate l)]
+  will look like [subl ++ rest] for some list [rest]. 
+  
+  This function is uniquely defined by the property that this 
+  list [rest] will have its elements in the same relative order
+  as those of [l]. *)
+Ltac2 bring_to_front_perm (eq : 'a -> 'a -> bool) 
+  (l : 'a list) (subl : 'a list) : int -> int :=
+  let len_l := List.length l in 
+  let enum_l := List.enumerate l in 
+  let mem_subl e := List.mem eq e subl in 
+  let len_subl := List.length subl in
+  (* The list of length [len_l] whose elements record how many 
+    elements _not_ in [subl] occur in [l] up to and including that index *) 
+  let (non_subl_counts, _) := 
+    List.fold_left (fun (acc, count) e => 
+      let new_count := if Bool.neg (mem_subl e) then Int.add count 1 else count in
+      (List.append acc [new_count], new_count)) ([], 0) l in
+  let enum_non_subl_counts := List.enumerate non_subl_counts in 
+  fun k => 
+  (* There are two cases. If we are in the inital segment that should
+    become [subl], we just need to find the index of that element of
+    [subl]. If we are past this initial segment, we need to find the
+    appropriate _non-[subl]-element_ of [l]. *)
+  (* First, basic bounds: *)
+  if Bool.or (Int.lt k 0) (Int.le len_l k) then k else
+  (* Now, the main case split: *)
+  if Int.lt k len_subl then
+    (* Case 1: initial subl segment *)
+    (* This is the element we want [nth <result> k] to be: *)
+    let elem := List.nth subl k in 
+    (* Find its index in [l] *)
+    let (i, _) := List.find (fun (_, elem') => eq elem elem') enum_l in 
+    (* This is the index we need *)
+    i
+  else 
+    (* Case 2: past the [subl] intial segment *)
+    (* We need to answer 'What is the smallest index at which 
+      we will have [k+1 - len_subl] non-elements of [subl] behind or at us'. 
+      This is answered by the index of the first element of 
+      [non_subl_counts] equal to [k+1-len_subl] *)
+    let k' := Int.sub (Int.add k 1) len_subl in 
+    fst (List.find (fun (_, count) => Int.equal count k') enum_non_subl_counts).
+
+
+
+(* Given a list of values and a sublist thereof, computes a 
+  permutation function such that reordering the list by that 
+  permutation exposes the sublist as a terminal segment. 
+  Works only with non-duplicate lists.
+
+  For example, if [l] is a list of which [subl] is sublist, 
+  meaning every element of [subl] appears in [l], then if 
+  [f := send_to_back_perm l subl], the list 
+  [List.map (fun (i, _) => List.nth l (f i)) (List.enumerate l)]
+  will look like [rest ++ subl] for some list [rest]. 
+  
+  This function is uniquely defined by the property that this 
+  list [rest] will have its elements in the same relative order
+  as those of [l]. *)
+Ltac2 send_to_back_perm (eq : 'a -> 'a -> bool) 
+  (l : 'a list) (subl : 'a list) : int -> int :=
+  let len_l := List.length l in 
+  let enum_l := List.enumerate l in 
+  let mem_subl e := List.mem eq e subl in 
+  let len_subl := List.length subl in
+  (* The list of length [len_l] whose elements record how many 
+    elements _not_ in [subl] occur in [l] up to and including that index *) 
+  let (non_subl_counts, _) := 
+    List.fold_left (fun (acc, count) e => 
+      let new_count := if Bool.neg (mem_subl e) then Int.add count 1 else count in
+      (List.append acc [new_count], new_count)) ([], 0) l in
+  let enum_non_subl_counts := List.enumerate non_subl_counts in 
+  fun k => 
+  (* There are two cases. If we are in the terminal segment that should
+    become [subl], we just need to find the index of that element of
+    [subl]. If we are before this terminal segment, we need to find the
+    appropriate _non-[subl]-element_ of [l]. *)
+  (* First, basic bounds: *)
+  if Bool.or (Int.lt k 0) (Int.le len_l k) then k else
+  (* Now, the main case split: *)
+  if Int.lt k (Int.sub len_l len_subl) then
+    (* Case 1: before terminal subl segment *)
+    (* We need to answer 'What is the smallest index at which 
+      we will have [k+1] non-elements of [subl] behind or at us'. 
+      This is answered by the index of the first element of 
+      [non_subl_counts] equal to [k+1] *)
+    fst (List.find (fun (_, count) => Int.equal count (Int.add k 1)) enum_non_subl_counts)
+  else 
+    (* Case 2: terminal [subl]  segment *)
+    (* This is the element we want [nth <result> k] to be: *)
+    let elem := List.nth subl (Int.sub k (Int.sub len_l len_subl)) in 
+    (* Find its index in [l] *)
+    let (i, _) := List.find (fun (_, elem') => eq elem elem') enum_l in 
+    (* This is the index we need *)
+    i.
+
+
+
+
+(* Remove the _first_ element of a list satisfying a given predicate. 
+  If none is found, return None. *)
+Ltac2 rec remove_first (f : 'a -> bool) (l : 'a list) : 'a list option :=
+  match l with 
+  | [] => None
+  | a :: l' => if f a then Some l' 
+    else Option.map (fun r => a :: r) (remove_first f l')
+  end.
+
+(* Test if two list are equal up to permutation. Assumes the 
+  given equality is an equivalence relation. *)
+Ltac2 rec perm_eq (eq : 'a -> 'a -> bool) (l : 'a list) (l' : 'a list) : bool :=
+  match l with 
+  | [] => List.is_empty l'
+  | a :: l_rest => match remove_first (eq a) l' with 
+    | None => false
+    | Some l'_rest => perm_eq eq l_rest l'_rest
+    end
+  end.
+
+(* Permute a list by a permutation of the indices. If a given index 
+  is mapped outside the length of the list, its initial value is used. *)
+Ltac2 permute_list (f : int -> int) (l : 'a list) :=
+  List.map (fun (i, v) => Option.default v (List.nth_opt l (f i)))
+    (List.enumerate l).
+
+(* Permute a list by the inverse of a permutation of the indices. 
+  (Strictly, works more generally for an injective funciton, not 
+  just permutation, ordering the elements of the list by the 
+  relative ordering of the funciton outputs.) *)
+Ltac2 inv_permute_list (f : int -> int) (l : 'a list) :=
+  List.map fst (List.sort (fun (i, _) (j, _) => Int.compare i j)
+    (List.map (fun (i, v) => (f i, v)) (List.enumerate l))).
+
+(* TODO: Test permute_list and inv_permute_list *)
+
+Module PermTesting. 
+
+Import PrintingExtra.
+
+(* Test that two lists are equal to each other, up to permutation. *)
+Ltac2 test_is_perm_pr (eq : 'a -> 'a -> bool) (pr : 'a -> message)
+  (on_err : string) (expected : 'a list) (test_val : 'a list) : UTest.t :=
+  UTest.value_eq_pr (perm_eq eq) (of_list pr) 
+    (fun()=>expected) (fun()=>test_val)
+    (String.app "lists should have been permutations. Message: " on_err).
+
+Ltac2 test_bring_to_front_on (l : int list) (subl : int list) : UTest.t :=
+  let len_l := List.length l in let len_subl := List.length subl in 
+  let l' := permute_list (bring_to_front_perm Int.equal l subl) l in 
+  UTest.seq 
+    (UTest.value_eqv_pr (List.equal Int.equal) (of_list of_int)
+      (String.concat "" ["First "; string_of_int len_l; 
+        " elements should be the sublist"]) 
+      (subl)
+      (List.firstn len_subl l'))
+    (test_is_perm_pr Int.equal of_int 
+    "bring_to_front_perm should have been a permutation" l l').
+
+Ltac2 test_bring_to_front_on' (l, subl) :=
+  test_bring_to_front_on l subl.
+
+Ltac2 test_bring_to_front () :=
+  UTest.foreach
+    [ ([1; 2; 3; 4; 5], [1; 2; 3]);
+      ([1; 2; 3; 4; 5], [2; 3; 4]);
+      ([1; 2; 3; 4; 5], [1; 4]);
+      ([1; 2; 3; 4; 5], [3; 5]);
+      ([1; 2; 3; 4; 5], [1]);
+      ([1; 2; 3; 4; 5], [])
+    ]
+    test_bring_to_front_on'.
+
+Ltac2 test_send_to_back_on (l : int list) (subl : int list) : UTest.t :=
+  let len_l := List.length l in let len_subl := List.length subl in 
+  let l' := permute_list (send_to_back_perm Int.equal l subl) l in 
+  UTest.seq 
+    (UTest.value_eqv_pr (List.equal Int.equal) (of_list of_int)
+      (String.concat "" ["Last "; string_of_int len_l; 
+        " elements should be the sublist"]) 
+      (subl)
+      (List.lastn len_subl l'))
+    (test_is_perm_pr Int.equal of_int 
+    "send_to_back_perm should have been a permutation" l l').
+
+Ltac2 test_send_to_back_on' (l, subl) :=
+  test_send_to_back_on l subl.
+
+Ltac2 test_send_to_back () :=
+  UTest.foreach
+    [ ([1; 2; 3; 4; 5], [1; 2; 3]);
+      ([1; 2; 3; 4; 5], [2; 3; 4]);
+      ([1; 2; 3; 4; 5], [1; 4]);
+      ([1; 2; 3; 4; 5], [3; 5]);
+      ([1; 2; 3; 4; 5], [1]);
+      ([1; 2; 3; 4; 5], [])
+    ]
+    test_send_to_back_on'.
+
+
+Ltac2 Eval UTest.assert (fun()=>
+  UTest.seq (test_bring_to_front ()) (test_send_to_back ())).
+
+End PermTesting.
+
+
+
+
 
 
 
