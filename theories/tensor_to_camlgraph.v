@@ -1,6 +1,7 @@
 Require Import Ltac2.Init.
-Require Import tensorexpression.
+Require Import tensorexpression_int.
 Require Import FSetExtra.
+Require hypercaml_testing. 
 Require UTest.
 
 (* Change which interface we import here to change which 
@@ -485,7 +486,7 @@ Ltac2 test_cycle_graph () : UTest.t :=
 Ltac2 Eval UTest.check test_triangle_graph.
 Ltac2 Eval UTest.check test_cycle_graph.
 
-Require Import hypercaml_testing. 
+Import hypercaml_testing. 
 Import caml_test_graphs.
 
 Ltac2 print_tensor_of_graph (g : Graph.t) : unit :=
@@ -523,12 +524,12 @@ End NumericalGraphs.
 Import Printing.
 
 
-
+(* 
 Ltac2 test_tensorlist (ub : int) : TensorList :=
   hypergraph_to_tensor_list (test_graph ub).
 
 Ltac2 test_tensorexpr (ub : int) : TensorExpr :=
-  tensor_expr_of_tensor_list (hypergraph_to_tensor_list (test_graph ub)).
+  tensor_expr_of_tensor_list (hypergraph_to_tensor_list (test_graph ub)). *)
 
 (* Testing tensor_expression_to_simplified: *)
   (* First, the initial tensorlist: *)
@@ -552,10 +553,10 @@ Ltac2 test_tensorexpr (ub : int) : TensorExpr :=
   printf "%i" n;
   Control.time None (fun () => Notations.do0 (fun () => 10) (fun () =>f n))) (List.range 0 20). *)
 
-
+(* 
 Ltac2 Eval Graph.equal (test_graph 5) (
   tensor_list_to_hypergraph (hypergraph_to_tensor_list (test_graph 5))
-).
+). *)
 
 (* Ltac2 Eval 
   Message.print (Graph.print_nice (test_graph 5)).
@@ -640,18 +641,6 @@ Ltac2 Eval Message.print (print_int_graph
 
     )
     )).
-  
-
-  
-
-
-
-
-
-
-
-
-
 
 *)
 

@@ -1,4 +1,7 @@
-Require Import HyperOCM.hypergraph.
+(* API for hypergraph_immutable that looks exactly like HypercamlInterface, 
+  and functions for converting back and forth between the datatypes *)
+
+Require Import HyperOCM.Deprecated.hypergraph_immutable.
 
 Require HypercamlInterface.
 
@@ -19,7 +22,8 @@ Ltac2 edata (e : string EData) : HypercamlInterface.EData.t :=
     (esource e) (etarget e) (value (evalue e)).
 
 Ltac2 graph (g : (string, string) Graph) : HypercamlInterface.Graph.t :=
-  HypercamlInterface.Graph.make_from (FMap.mapi (fun _ => vdata) (g.(vdata)))
+  HypercamlInterface.Graph.make_from 
+    (FMap.mapi (fun _ => vdata) (g.(vdata)))
     (FMap.mapi (fun _ => edata) (g.(edata)))
     (inputs g) (outputs g) (g.(_vindex)) (g.(_eindex)).
 
@@ -38,16 +42,16 @@ Import HypercamlInterface.
 Ltac2 value (v : string) : string option :=
   if String.is_empty v then None else Some v.
 
-Ltac2 vdata (vd : VData.t) : string hypergraph.VData := 
+Ltac2 vdata (vd : VData.t) : string hypergraph_immutable.VData := 
   mk_vdata_from 
     (VData.in_edges vd) (VData.out_edges vd)
     (VData.in_indices vd) (VData.out_indices vd)
     (value (VData.value vd)).
 
-Ltac2 edata (ed : EData.t) : string hypergraph.EData :=
+Ltac2 edata (ed : EData.t) : string hypergraph_immutable.EData :=
   mk_edata (EData.source ed) (EData.target ed) (value (EData.value ed)).
 
-Ltac2 graph (g : Graph.t) : (string, string) hypergraph.Graph := {
+Ltac2 graph (g : Graph.t) : (string, string) hypergraph_immutable.Graph := {
   vdata := FMap.mapi (fun _ => vdata) (Graph.vdata g);
   edata := FMap.mapi (fun _ => edata) (Graph.edata g);
   _inputs := Graph.inputs g;
@@ -56,7 +60,7 @@ Ltac2 graph (g : Graph.t) : (string, string) hypergraph.Graph := {
   _eindex := Graph.eindex g;
 }.
 
-Ltac2 match_ (m : Match.t) : (string, string) hypergraph.Match := {
+Ltac2 match_ (m : Match.t) : (string, string) hypergraph_immutable.Match := {
   domain := graph (Match.domain m);
   codomain := graph (Match.codomain m);
   edge_eq := String.equal;
@@ -68,9 +72,10 @@ Ltac2 match_ (m : Match.t) : (string, string) hypergraph.Match := {
 
 End LtacOfCaml.
 
-Module HypermutInterface. 
 
-Import hypergraph.
+Module HyperimmutInterface.
+
+Import hypergraph_immutable.
 
 Module VData.
 
@@ -171,12 +176,12 @@ Ltac2 source (g : t) v := source g v.
 Ltac2 target (g : t) v := target g v.
 
 Ltac2 add_vertex name idx (g : t) : t * int := 
-  g, add_vertex g name idx.
+  add_vertex g name idx.
 Ltac2 add_edge name idx s t (g : t) : t * int :=
-  g, add_edge g s t name idx.
+  add_edge g s t name idx.
 
-Ltac2 set_inputs ins (g : t) : t := set_inputs g ins; g.
-Ltac2 set_outputs outs (g : t) : t := set_outputs g outs; g.
+Ltac2 set_inputs ins (g : t) := set_inputs g ins.
+Ltac2 set_outputs outs (g : t) := set_outputs g outs.
 
 Ltac2 is_input (g : t) v := is_input g v.
 Ltac2 is_output (g : t) v := is_output g v.
@@ -206,16 +211,16 @@ Ltac2 edge_map (m : t) := m.(edge_map).
 Ltac2 edge_image (m : t) := m.(edge_image).
 
 Ltac2 try_add_vertex dv cdv (m : t) : t option :=
-  if try_add_vertex String.equal m dv cdv then Some m else None.
+  try_add_vertex String.equal m dv cdv.
 
 Ltac2 try_add_edge de cde (m : t) : t option :=
-  if try_add_edge String.equal m de cde then Some m else None.
+  try_add_edge String.equal m de cde.
 
 Ltac2 domain_neighbourhood_mapped (m : t) v :=
   domain_neighborhood_mapped m v.
 
 Ltac2 map_scalars (m : t) : t option := 
-  if map_scalars m then Some m else None.
+  map_scalars m.
 
 Ltac2 more (m : t) : t list :=
   more String.equal m.
@@ -229,9 +234,7 @@ Ltac2 make_match_sequence (d : Graph.t) cd (m : t option) : t list :=
 
 Ltac2 next_match (ms : t list) : (t * (t list)) option :=
   Option.map (fun (m, ms) => (m, ms.(match_stack)))
-    (Option.bind (mk_matches_from_stack ms) (
-      fun ms => Option.map (fun m => (m, ms)) 
-      (next_match String.equal ms))).
+    (Option.bind (mk_matches_from_stack ms) (next_match String.equal)).
 
 Ltac2 seq_to_list (ms : t list) : t list := 
   Option.map_default (get_matches String.equal) [] (mk_matches_from_stack ms).
@@ -248,5 +251,4 @@ Ltac2 find_iso (d : Graph.t) (cd : Graph.t) : t option :=
 
 End Match.
 
-
-End HypermutInterface.
+End HyperimmutInterface.

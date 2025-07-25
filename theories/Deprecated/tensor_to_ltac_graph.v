@@ -1,5 +1,5 @@
 Require Import Ltac2.Init.
-Require Import tensorexpression.
+Require Import tensorexpression_int.
 Require Import FSetExtra.
 Require Import hypergraph.
 
