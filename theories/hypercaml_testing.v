@@ -623,26 +623,21 @@ Ltac2 test_boundary_matching () : UTest.t :=
   let matches := Match.match_graph g1 g2 in
   UTest.bool_eqv "boundary graphs should match" true (Int.gt (Match.count matches) 0).
 
-(* FIXME: Move *)
-Ltac2 is_some : 'a option -> bool := fun o =>
-  Option.map_default (fun _ => true) false o.
-(* FIXME: Move *)
-Ltac2 is_none : 'a option -> bool := fun o =>
-  Option.map_default (fun _ => false) true o.
-
 (* Test isomorphism finding *)
 Ltac2 test_find_iso () : UTest.t :=
   let g1 := make_cycle_graph () in
   let g2 := make_cycle_graph () in
   let iso_opt := Match.find_iso g1 g2 in
-  UTest.bool_eqv "cycles should be isomorphic" true (is_some iso_opt).
+  UTest.opt_is_some_pr Match.print_nice_full "cycles should be isomorphic" 
+    iso_opt.
 
 (* Non-isomorphic graphs *)
 Ltac2 test_no_iso () : UTest.t :=
   let cycle := make_cycle_graph () in
   let path := make_path_graph ["A"; "B"; "C"] in
   let iso_opt := Match.find_iso cycle path in
-  UTest.bool_eqv "cycle and path should not be isomorphic" true (is_none iso_opt).
+  UTest.opt_is_none_pr Match.print_nice_full 
+    "cycle and path should not be isomorphic" iso_opt.
 
 (* Complex hypergraph matching *)
 Ltac2 test_hypergraph_match () : UTest.t :=
@@ -701,6 +696,17 @@ Ltac2 test_hypergraph_match_proper () : UTest.t :=
     true)
   (UTest.int_eqv "proper hypergraphs should match" 1 (Match.count matches)).
 
+(* Isomorphisms must be boundary-preserving *)
+Ltac2 test_iso_boundary_preserving () : UTest.t :=
+  let g1 := !Graph 0, 1 -> 2, 3 : 
+    f : 0 -> 2 ; g : 1 -> 3 in
+  let g2 := !Graph 1, 0 -> 3, 2 : 
+    f : 0 -> 2 ; g : 1 -> 3 in
+  let iso_opt := Match.find_iso g1 g2 in 
+  UTest.opt_is_none_pr Match.print_nice_full 
+    "graphs with incompatible boundaries should not match" iso_opt.
+
+
 Ltac2 tests () := [
   ("empty graphs match", test_empty_graphs);
   ("single vertex match", test_single_vertex_match);
@@ -716,6 +722,7 @@ Ltac2 tests () := [
   ("boundary matching", test_boundary_matching);
   ("find isomorphism", test_find_iso);
   ("no isomorphism", test_no_iso);
+  ("isomorphism boundary preserving", test_iso_boundary_preserving);
   ("hypergraph match", test_hypergraph_match);
   ("multiple matches", test_multiple_matches);
   ("mixed edges", test_mixed_edges);
