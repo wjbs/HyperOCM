@@ -444,6 +444,68 @@ Ltac2 inv_permute_list (f : int -> int) (l : 'a list) :=
 
 (* TODO: Test permute_list and inv_permute_list *)
 
+
+(* Given a list and a sublist thereof, removes the sublist from the
+  list. Here, sublist means in the sense of multisets, so duplicates
+  are allowed and count separately. Returns None if the sublist is
+  not actualyl a sublist of the list. *)
+Ltac2 remove_sublist_opt (eq : 'a -> 'a -> bool) 
+  (l : 'a list) (subl : 'a list) : 'a list option :=
+  let rec go l subl :=
+    match l with 
+    | [] => if List.is_empty subl then Some [] else None
+    | a :: l' => match remove_first (eq a) subl with 
+      | Some subl' => (* There was an [a] in [subl] *)
+        go l' subl'
+      | None => (* [a] was not in [subl] *)
+        Option.map (List.cons a) (go l' subl)
+      end
+    end in
+  go l subl.
+
+(* Given a list and a sublist thereof, removes the sublist from the
+  list. Here, sublist means in the sense of multisets, so duplicates
+  are allowed and count separately. Raises an [Invalid_argument] 
+  exception if the sublist is not actually a sublist of the list. *)
+Ltac2 remove_sublist (eq : 'a -> 'a -> bool) 
+  (l : 'a list) (subl : 'a list) : 'a list :=
+  match remove_sublist_opt eq l subl with 
+  | Some l' => l'
+  | None =>
+    Control.throw_invalid_argument "subl is not a sublist of l (in remove_sublist)"
+  end.
+
+
+(* Given a list and a sublist thereof, return the permutation of
+  the original list with the sublist as an initial segment. Raises
+  an [Invalid_argument] error if the sublist is not a sublist of
+  the original list.
+  
+  Literally, concatenates [subl] and [remove_sublist eq l subl]. *)
+Ltac2 bring_to_front (eq : 'a -> 'a -> bool) 
+  (l : 'a list) (subl : 'a list) : 'a list :=
+  match remove_sublist_opt eq l subl with 
+  | Some l' => List.append subl l'
+  | None => 
+    Control.throw_invalid_argument "subl is not a sublist of l (in bring_to_front)"
+  end.
+
+
+(* Given a list and a sublist thereof, return the permutation of
+  the original list with the sublist as a terminal segment. Raises
+  an [Invalid_argument] error if the sublist is not a sublist of
+  the original list.
+  
+  Literally, concatenates [subl] and [remove_sublist eq l subl]. *)
+Ltac2 send_to_back (eq : 'a -> 'a -> bool) 
+  (l : 'a list) (subl : 'a list) : 'a list :=
+  match remove_sublist_opt eq l subl with 
+  | Some l' => List.append l' subl
+  | None => 
+    Control.throw_invalid_argument "subl is not a sublist of l (in send_to_back)"
+  end.
+
+
 Module PermTesting. 
 
 Import PrintingExtra.
@@ -455,7 +517,10 @@ Ltac2 test_is_perm_pr (eq : 'a -> 'a -> bool) (pr : 'a -> message)
     (fun()=>expected) (fun()=>test_val)
     (String.app "lists should have been permutations. Message: " on_err).
 
-Ltac2 test_bring_to_front_on (l : int list) (subl : int list) : UTest.t :=
+
+(* Helpers for permutation function tests*)
+
+Ltac2 test_bring_to_front_perm_on (l : int list) (subl : int list) : UTest.t :=
   let len_l := List.length l in let len_subl := List.length subl in 
   let l' := permute_list (bring_to_front_perm Int.equal l subl) l in 
   UTest.seq 
@@ -467,21 +532,10 @@ Ltac2 test_bring_to_front_on (l : int list) (subl : int list) : UTest.t :=
     (test_is_perm_pr Int.equal of_int 
     "bring_to_front_perm should have been a permutation" l l').
 
-Ltac2 test_bring_to_front_on' (l, subl) :=
-  test_bring_to_front_on l subl.
+Ltac2 test_bring_to_front_perm_on' (l, subl) :=
+  test_bring_to_front_perm_on l subl.
 
-Ltac2 test_bring_to_front () :=
-  UTest.foreach
-    [ ([1; 2; 3; 4; 5], [1; 2; 3]);
-      ([1; 2; 3; 4; 5], [2; 3; 4]);
-      ([1; 2; 3; 4; 5], [1; 4]);
-      ([1; 2; 3; 4; 5], [3; 5]);
-      ([1; 2; 3; 4; 5], [1]);
-      ([1; 2; 3; 4; 5], [])
-    ]
-    test_bring_to_front_on'.
-
-Ltac2 test_send_to_back_on (l : int list) (subl : int list) : UTest.t :=
+Ltac2 test_send_to_back_perm_on (l : int list) (subl : int list) : UTest.t :=
   let len_l := List.length l in let len_subl := List.length subl in 
   let l' := permute_list (send_to_back_perm Int.equal l subl) l in 
   UTest.seq 
@@ -493,23 +547,141 @@ Ltac2 test_send_to_back_on (l : int list) (subl : int list) : UTest.t :=
     (test_is_perm_pr Int.equal of_int 
     "send_to_back_perm should have been a permutation" l l').
 
+Ltac2 test_send_to_back_perm_on' (l, subl) :=
+  test_send_to_back_perm_on l subl.
+
+
+(* Helpers for list permutation tests *)
+
+Ltac2 test_bring_to_front_on (l : int list) (subl : int list) : UTest.t :=
+  let len_l := List.length l in let len_subl := List.length subl in 
+  let l' := bring_to_front Int.equal l subl in 
+  UTest.seq 
+    (UTest.value_eqv_pr (List.equal Int.equal) (of_list of_int)
+      (String.concat "" ["First "; string_of_int len_l; 
+        " elements should be the sublist"]) 
+      (subl)
+      (List.firstn len_subl l'))
+    (test_is_perm_pr Int.equal of_int 
+    "bring_to_front should have been a permutation" l l').
+
+Ltac2 test_bring_to_front_on' (l, subl) : UTest.t :=
+  test_bring_to_front_on l subl.
+
+Ltac2 test_send_to_back_on (l : int list) (subl : int list) : UTest.t :=
+  let len_l := List.length l in let len_subl := List.length subl in 
+  let l' := send_to_back Int.equal l subl in 
+  UTest.seq 
+    (UTest.value_eqv_pr (List.equal Int.equal) (of_list of_int)
+      (String.concat "" ["Last "; string_of_int len_l; 
+        " elements should be the sublist"]) 
+      (subl)
+      (List.lastn len_subl l'))
+    (test_is_perm_pr Int.equal of_int 
+    "send_to_back should have been a permutation" l l').
+
 Ltac2 test_send_to_back_on' (l, subl) :=
   test_send_to_back_on l subl.
 
+
+
+Ltac2 test_remove_sublist_opt_Some 
+  ((l, subl) : int list * int list) : UTest.t := 
+  let len_l := List.length l in let len_subl := List.length subl in 
+  let opt_l' := remove_sublist_opt Int.equal l subl in 
+  UTest.seqs [
+    UTest.opt_is_some_pr (of_list of_int)
+      "remove_sublist_opt should succeed" opt_l';
+    match opt_l' with 
+    | None => (* The above will fail already; we can skip the rest *)
+      UTest.notest ()
+    | Some l' => UTest.seqs [
+    UTest.int_eqv 
+      "length of remove_sublist_opt should be difference of list lengths"
+      (Int.sub len_l len_subl)
+      (List.length l');
+    test_is_perm_pr Int.equal of_int 
+    "remove_sublist_opt should give a permutation when subl is concatted" 
+    l (List.append subl l')]
+    end].
+
+Ltac2 test_remove_sublist_opt_None
+  ((l, subl) : int list * int list) : UTest.t := 
+  let opt_l' := remove_sublist_opt Int.equal l subl in 
+  UTest.opt_is_none_pr (of_list of_int) 
+    (String.concat "" [
+      "remove_sublist_opt should return None for non-sublists ";
+      "(l = "; to_string (of_list of_int l); ", subl = ";
+        to_string (of_list of_int l)])
+    opt_l'.
+
+
+(* Values on which to test these functions *)
+
+Ltac2 _subset_lists () :=
+  [ 
+    ([1; 2; 3; 4; 5], [1; 2; 3]);
+    ([1; 2; 3; 4; 5], [2; 3; 4]);
+    ([1; 2; 3; 4; 5], [1; 4]);
+    ([1; 2; 3; 4; 5], [3; 5]);
+    ([1; 2; 3; 4; 5], [1]);
+    ([1; 2; 3; 4; 5], [])
+  ].
+
+Ltac2 _non_subset_sublists () :=
+  [
+    ([1; 1; 2; 2; 4; 5], [1; 2; 2; 5]);
+    ([1; 1; 2; 2; 4; 5], [4; 2; 1; 1])
+  ].
+
+Ltac2 _all_sublists () :=
+  List.append (_subset_lists()) (_non_subset_sublists()).
+
+Ltac2 _non_sublists () :=
+  [
+    ([1; 1; 2; 2; 4; 5], [1; 2; 2; 2]); (* Too many 2's *)
+    ([1; 1; 2; 2; 4; 5], [4; 2; 1; 3]) (* No 3 in first *)
+  ].
+
+
+
+
+Ltac2 test_bring_to_front_perm () :=
+  UTest.foreach (_subset_lists())
+    test_bring_to_front_perm_on'.
+
+Ltac2 test_send_to_back_perm () :=
+  UTest.foreach (_subset_lists())
+    test_send_to_back_perm_on'.
+
+Ltac2 test_bring_to_front () :=
+  UTest.foreach
+    (_all_sublists())
+    test_bring_to_front_on'.
+
 Ltac2 test_send_to_back () :=
   UTest.foreach
-    [ ([1; 2; 3; 4; 5], [1; 2; 3]);
-      ([1; 2; 3; 4; 5], [2; 3; 4]);
-      ([1; 2; 3; 4; 5], [1; 4]);
-      ([1; 2; 3; 4; 5], [3; 5]);
-      ([1; 2; 3; 4; 5], [1]);
-      ([1; 2; 3; 4; 5], [])
-    ]
+    (_all_sublists())
     test_send_to_back_on'.
 
+Ltac2 test_remove_sublist_opt_success () :=
+  UTest.foreach (_all_sublists())
+    test_remove_sublist_opt_Some.
 
-Ltac2 Eval UTest.assert (fun()=>
-  UTest.seq (test_bring_to_front ()) (test_send_to_back ())).
+Ltac2 test_remove_sublist_opt_failure () :=
+  UTest.foreach (_non_sublists())
+    test_remove_sublist_opt_None.
+
+Ltac2 tests () := [
+  ("bring_to_front_perm success", test_bring_to_front_perm);
+  ("send_to_back_perm success", test_send_to_back_perm);
+  ("remove_sublist_opt success", test_remove_sublist_opt_success);
+  ("remove_sublist_opt failure", test_remove_sublist_opt_failure);
+  ("bring_to_front success", test_bring_to_front);
+  ("send_to_back success", test_send_to_back)
+].
+
+Ltac2 Eval UTest.asserts UTest.noprint (tests()).
 
 End PermTesting.
 
