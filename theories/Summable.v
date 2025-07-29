@@ -1,6 +1,8 @@
 Require Ring_theory.
 Require Integral_domain.
 Require List.
+Require Permutation.
+Require SetoidList.
 Require Import Ring.
 
 
@@ -125,9 +127,9 @@ Module Summation (SR : SemiRing).
 
 Import Setoid.
 
-Import SR.
+Export SR.
 Module SRF := SemiRingFacts SR.
-Import SRF.
+Export SRF.
 Import SRF.SemiRingNotations.
 
 
@@ -405,23 +407,23 @@ Fixpoint stperm_symm {fT fT'} `(ST : SummableTy B fT) (ST' : SummableTy B fT')
     stperm_trans ST'' ST' ST (stperm_symm _ _ P') (stperm_symm _ _ P)
   end.
 
-Fixpoint perm_args_of_STperm {fT fT'} 
+Fixpoint perm_args_of_STPerm {fT fT'} 
   `{SfT : SummableTy B fT} {SfT' : SummableTy B fT'}
   (P : STPerm SfT SfT') : fT -> fT' :=
   match P with 
   | stperm_nil => fun r => r
   | stperm_skip A SA ST ST' P' => 
-    fun f => fun a => perm_args_of_STperm P' (f a)
+    fun f => fun a => perm_args_of_STPerm P' (f a)
   | stperm_swap A SA B SB ST => 
     fun f => fun a b => f b a
   | stperm_trans ST ST' ST'' P P' => 
-    fun f => perm_args_of_STperm P' (perm_args_of_STperm P f)
+    fun f => perm_args_of_STPerm P' (perm_args_of_STPerm P f)
   end.
 
 
-Lemma sum_STperm {fT fT'} (SfT : SummableTy R fT) (SfT' : SummableTy R fT') 
+Lemma sum_STPerm {fT fT'} (SfT : SummableTy R fT) (SfT' : SummableTy R fT') 
   (P : STPerm SfT SfT') (f : fT) : 
-  sum_summable SfT' (perm_args_of_STperm P f) ==
+  sum_summable SfT' (perm_args_of_STPerm P f) ==
   sum_summable SfT f.
 Proof.
   induction P.
@@ -438,6 +440,13 @@ Proof.
     reflexivity.
 Qed.
 
+Lemma sum_STPerm' {fT fT'} (SfT : SummableTy R fT) (SfT' : SummableTy R fT') 
+  (P : STPerm SfT SfT') (f : fT) : 
+  sum_summable SfT f == 
+  sum_summable SfT' (perm_args_of_STPerm P f).
+Proof.
+  now rewrite sum_STPerm.
+Qed.
 
 Fixpoint swap_summablety_nth {C} (n : nat) : forall {fT}, SummableTy C fT -> 
   {fT' & SummableTy C fT'} :=
@@ -463,7 +472,7 @@ Notation swap_type_nth n ST := (projT1 (swap_summablety_nth n ST)).
 Notation swap_summable_nth n ST := (projT2 (swap_summablety_nth n ST)).
 
 
-Fixpoint swap_summable_nth_STperm {C} (n : nat) : 
+Fixpoint swap_summable_nth_STPerm {C} (n : nat) : 
   forall {fT} (SfT : SummableTy C fT), 
   STPerm SfT (swap_summable_nth n SfT) :=
   match n with 
@@ -483,32 +492,273 @@ Fixpoint swap_summable_nth_STperm {C} (n : nat) :
     match SfT (* as ST' return STPerm ST' (swap_summable_nth (S n') ST') *) with 
     | STcons A SA SfT' =>
       stperm_skip A SA _ _
-        (swap_summable_nth_STperm n' SfT')
+        (swap_summable_nth_STPerm n' SfT')
     | STnil => stperm_refl _
     end
   end.
 
-Fixpoint swap_summabletys {C} (l : list nat) {fT} (ST : SummableTy C fT) : 
+Fixpoint swap_summablety_nths {C} (l : list nat) {fT} (ST : SummableTy C fT) : 
   {fT' & SummableTy C fT'} :=
   match l with 
   | [] => existT _ fT ST
   | n :: l' => 
-    swap_summabletys l' (swap_summable_nth n ST)
+    swap_summablety_nths l' (swap_summable_nth n ST)
   end.
 
-Notation swap_type_nths l ST := (projT1 (swap_summabletys l ST)).
-Notation swap_summable_nths l ST := (projT2 (swap_summabletys l ST)).
+Notation swap_type_nths l ST := (projT1 (swap_summablety_nths l ST)).
+Notation swap_summable_nths l ST := (projT2 (swap_summablety_nths l ST)).
 
-Fixpoint swap_summabletys_STperm {C} (l : list nat) 
+Fixpoint swap_summablety_nths_STPerm {C} (l : list nat) 
   {fT} (ST : SummableTy C fT) :
   STPerm ST (swap_summable_nths l ST) :=
   match l with 
   | [] => stperm_refl _
   | n :: l' => 
     stperm_trans _ _ _ 
-      (swap_summable_nth_STperm n ST)
-      (swap_summabletys_STperm l' (swap_summable_nth n ST))
+      (swap_summable_nth_STPerm n ST)
+      (swap_summablety_nths_STPerm l' (swap_summable_nth n ST))
   end.
+
+
+
+
+
+Fixpoint insert_summablety_after_nth {C} (n : nat) 
+  {A} (SA : Summable A) : forall {fT}, SummableTy C fT -> 
+  {fT' & SummableTy C fT'} :=
+  match n with
+  | 0 => fun fT SfT => existT _ (A -> fT) (STcons A SA SfT)
+  | S n' => 
+    fun fT SfT => 
+    match SfT with 
+    | STnil => existT _ (A -> C) (STcons A SA STnil)
+    | STcons B SB SfT' => 
+      existT _ _ 
+      (STcons B SB (projT2 (insert_summablety_after_nth n' SA SfT')))
+    end
+  end.
+
+Notation insert_type_after_nth n SA ST :=
+  (projT1 (insert_summablety_after_nth n SA ST)).
+Notation insert_summable_after_nth n SA ST :=
+  (projT2 (insert_summablety_after_nth n SA ST)).
+
+
+Fixpoint insert_summable_after_nth_STPerm {C} (n : nat) 
+  {A} (SA : Summable A) : forall {fT} (SfT : SummableTy C fT),
+  STPerm (STcons A SA SfT) (insert_summable_after_nth n SA SfT) :=
+  match n with
+  | 0 => fun fT SfT => stperm_refl _
+  | S n' => 
+    fun fT SfT => 
+    match SfT with 
+    | STnil => stperm_refl _
+    | STcons B SB SfT' => 
+      stperm_trans _ _ _ 
+        (stperm_swap B SB A SA SfT')
+        (stperm_skip B SB _ _ (insert_summable_after_nth_STPerm n' SA SfT'))
+    end
+  end.
+
+Definition swap_summablety_with_nth {C} (n : nat) 
+  {fT} (SfT : SummableTy C fT) : 
+  {fT' & SummableTy C fT'} :=
+  match SfT with 
+  | STnil => existT _ fT SfT
+  | STcons A SA SfT' => insert_summablety_after_nth n SA SfT'
+  end.
+
+Notation swap_type_with_nth n ST := (projT1 (swap_summablety_with_nth n ST)).
+Notation swap_summable_with_nth n ST := (projT2 (swap_summablety_with_nth n ST)).
+
+Definition swap_summable_with_nth_STPerm {C} (n : nat) 
+  {fT} (SfT : SummableTy C fT) : 
+  STPerm SfT (swap_summable_with_nth n SfT) :=
+  match SfT as SfT return STPerm SfT (swap_summable_with_nth n SfT) with 
+  | STnil => stperm_refl _
+  | STcons A SA SfT' => insert_summable_after_nth_STPerm n SA SfT'
+  end.
+
+
+Fixpoint extraction_sort_summablety {C} (l : list nat) : 
+  forall {fT} (SfT : SummableTy C fT), 
+  {fT' & SummableTy C fT'} :=
+  match l with 
+  | [] => fun fT SfT => existT _ fT SfT
+  | n :: l' => 
+    fun fT SfT =>
+    match swap_summable_with_nth n SfT with 
+    | STnil => existT _ _ STnil
+    | STcons A SA SfT' => 
+      existT _ _ (STcons A SA (projT2 (extraction_sort_summablety l' SfT')))
+    end
+  end.
+
+Notation extraction_sort_type l ST := 
+  (projT1 (extraction_sort_summablety l ST)).
+Notation extraction_sort_summable l ST := 
+  (projT2 (extraction_sort_summablety l ST)).
+
+Fixpoint extraction_sort_summable_STPerm {C} (l : list nat) : 
+  forall {fT} (SfT : SummableTy C fT), 
+  STPerm SfT (extraction_sort_summable l SfT) :=
+  match l with 
+  | [] => fun fT SfT => stperm_refl _ 
+  | n :: l' => 
+    fun fT SfT =>
+    stperm_trans SfT (swap_summable_with_nth n SfT)
+        (extraction_sort_summable (n :: l') SfT)
+      (swap_summable_with_nth_STPerm n SfT)
+      (match swap_summable_with_nth n SfT as x in (SummableTy _ T)
+        return (STPerm x (projT2
+          match x with
+          | STnil => existT (SummableTy C) _ _
+          | STcons _ _ _ => existT (SummableTy C) _ _
+          end)) with 
+      | STnil => stperm_refl STnil
+      | STcons A SA SfT' =>
+        stperm_skip A SA SfT' (extraction_sort_summable l' SfT')
+          (extraction_sort_summable_STPerm l' SfT')
+      end)
+end.
+
+
+
+Fixpoint swap_summablety_with_nth_after {C} (n : nat) (d : nat) : 
+  forall {fT}, SummableTy C fT -> 
+  {fT' & SummableTy C fT'} :=
+  match d with 
+  | 0 => fun fT => swap_summablety_with_nth n
+  | S d' => 
+    fun fT SfT => 
+    match SfT with 
+    | STcons A SA SfT' =>
+      let SfT'' := swap_summablety_with_nth_after n d' SfT' in 
+      existT _ (A -> projT1 SfT'')
+        (STcons A SA (projT2 SfT''))
+    | STnil => existT _ C STnil
+    end
+  end.
+
+Notation swap_type_with_nth_after n d ST := 
+  (projT1 (swap_summablety_with_nth_after n d ST)).
+Notation swap_summable_with_nth_after n d ST := 
+  (projT2 (swap_summablety_with_nth_after n d ST)).
+
+Fixpoint swap_summable_with_nth_after_STPerm {C} n d : forall
+  {fT} (SfT : SummableTy C fT),
+  STPerm SfT (swap_summable_with_nth_after n d SfT) :=
+  match d (* as d return forall
+  {fT} (SfT : SummableTy C fT),
+  STPerm SfT (swap_summable_nth_after n d SfT) *) with 
+  | 0 => fun fT SfT => swap_summable_with_nth_STPerm n SfT
+  | S d' => 
+    fun fT SfT => 
+    match SfT (* as SfT return 
+      STPerm SfT (swap_summable_nth_after n (S d') SfT) *) with 
+    | STcons A SA SfT' =>
+      stperm_skip A SA _ _ (swap_summable_with_nth_after_STPerm n d' SfT')
+    | STnil => stperm_nil
+    end
+  end.
+
+Fixpoint swap_summablety_with_nths_after {C} (l : list (nat * nat)) 
+  {fT} (ST : SummableTy C fT) : 
+  {fT' & SummableTy C fT'} :=
+  match l with 
+  | [] => existT _ fT ST
+  | (n, d) :: l' => 
+    swap_summablety_with_nths_after l' (swap_summable_with_nth_after n d ST)
+  end.
+
+Notation swap_type_with_nths_after l ST := 
+  (projT1 (swap_summablety_with_nths_after l ST)).
+Notation swap_summable_with_nths_after l ST := 
+  (projT2 (swap_summablety_with_nths_after l ST)).
+
+Fixpoint swap_summable_with_nths_after_STPerm {C} (l : list (nat * nat)) 
+  {fT} (ST : SummableTy C fT) :
+  STPerm ST (swap_summable_with_nths_after l ST) :=
+  match l with 
+  | [] => stperm_refl _
+  | (n, d) :: l' => 
+    stperm_trans _ _ _ 
+      (swap_summable_with_nth_after_STPerm n d ST)
+      (swap_summable_with_nths_after_STPerm l' 
+      (swap_summable_with_nth_after n d ST))
+  end.
+
+
+
+
+
+
+Fixpoint swap_summablety_nth_after {C} (n : nat) (d : nat) : 
+  forall {fT}, SummableTy C fT -> 
+  {fT' & SummableTy C fT'} :=
+  match d with 
+  | 0 => fun fT => swap_summablety_nth n
+  | S d' => 
+    fun fT SfT => 
+    match SfT with 
+    | STcons A SA SfT' =>
+      let SfT'' := swap_summablety_nth_after n d' SfT' in 
+      existT _ (A -> projT1 SfT'')
+        (STcons A SA (projT2 SfT''))
+    | STnil => existT _ C STnil
+    end
+  end.
+
+Notation swap_type_nth_after n d ST := 
+  (projT1 (swap_summablety_nth_after n d ST)).
+Notation swap_summable_nth_after n d ST := 
+  (projT2 (swap_summablety_nth_after n d ST)).
+
+Fixpoint swap_summable_nth_after_STPerm {C} n d : forall
+  {fT} (SfT : SummableTy C fT),
+  STPerm SfT (swap_summable_nth_after n d SfT) :=
+  match d (* as d return forall
+  {fT} (SfT : SummableTy C fT),
+  STPerm SfT (swap_summable_nth_after n d SfT) *) with 
+  | 0 => fun fT SfT => swap_summable_nth_STPerm n SfT
+  | S d' => 
+    fun fT SfT => 
+    match SfT (* as SfT return 
+      STPerm SfT (swap_summable_nth_after n (S d') SfT) *) with 
+    | STcons A SA SfT' =>
+      stperm_skip A SA _ _ (swap_summable_nth_after_STPerm n d' SfT')
+    | STnil => stperm_nil
+    end
+  end.
+
+Fixpoint swap_summablety_nths_after {C} (l : list (nat * nat)) 
+  {fT} (ST : SummableTy C fT) : 
+  {fT' & SummableTy C fT'} :=
+  match l with 
+  | [] => existT _ fT ST
+  | (n, d) :: l' => 
+    swap_summablety_nths_after l' (swap_summable_nth_after n d ST)
+  end.
+
+Notation swap_type_nths_after l ST := 
+  (projT1 (swap_summablety_nths_after l ST)).
+Notation swap_summable_nths_after l ST := 
+  (projT2 (swap_summablety_nths_after l ST)).
+
+Fixpoint swap_summablety_nths_after_STPerm {C} (l : list (nat * nat)) 
+  {fT} (ST : SummableTy C fT) :
+  STPerm ST (swap_summable_nths_after l ST) :=
+  match l with 
+  | [] => stperm_refl _
+  | (n, d) :: l' => 
+    stperm_trans _ _ _ 
+      (swap_summable_nth_after_STPerm n d ST)
+      (swap_summablety_nths_after_STPerm l' (swap_summable_nth_after n d ST))
+  end.
+
+
+
+
 
 
 Fixpoint summable_pointwise_relation {C} (RC : relation C) 
@@ -576,6 +826,40 @@ Proof.
 Qed.
 
 
+(* Split a summable type into an initial and terminal segment *)
+Fixpoint split_summablety_after {C} (n : nat) {fT} (ST : SummableTy C fT) :
+  { gT_fT : Type * Type & 
+    (SummableTy (snd gT_fT) (fst gT_fT) * SummableTy C (snd gT_fT))%type} :=
+  match n with 
+  | 0 => existT _ (fT, fT) (STnil, ST)
+  | S n' => 
+    match ST (* in SummableTy _ fT 
+      return { gT_fT : Type * Type & 
+    (SummableTy (snd gT_fT) (fst gT_fT) * SummableTy C (snd gT_fT))%type} *) with 
+    | @STnil _ => existT _ (_, _) (STnil, STnil)
+    | STcons A SA ST' => 
+      let 'existT _ (gT, fT') (HSg, HSf) := split_summablety_after n' ST' in 
+      existT _ (A -> gT, fT') (STcons A SA HSg, HSf)
+    end
+  end.
+
+Notation split_summable_ty1 n ST :=
+  (fst (projT1 (split_summablety_after n ST))).
+Notation split_summable_ty2 n ST :=
+  (snd (projT1 (split_summablety_after n ST))).
+
+Notation split_summable1 n ST :=
+  (fst (projT2 (split_summablety_after n ST))).
+Notation split_summable2 n ST :=
+  (snd (projT2 (split_summablety_after n ST))).
+
+(* Fixpoint split_sum_after {R} (n : nat) {fT} (ST : SummableTy R fT) : 
+  fT -> 
+
+
+Lemma  *)
+
+
 Fixpoint summable_app {fT gT} 
   (ST : SummableTy fT gT) (ST' : SummableTy R fT) : 
   {fT' & SummableTy R fT'} :=
@@ -592,9 +876,380 @@ Fixpoint summable_app {fT gT}
 
 
 
+(* Corresponding results on lists to allow us to talk about products *)
+(* TODO: Extend to trees (via permutations of their underlying lists)
+  to avoid having to pre-associate *)
+
+Import Permutation.
+
+Import SetoidList.
+
+Local Instance fold_left_mor f 
+  (HProp : Morphisms.Proper (req ==> req ==> req) f) : 
+  Morphisms.Proper (eqlistA req ==> req ==> req) (List.fold_left f).
+Proof.
+  intros l l' Hl.
+  induction Hl; intros a a' Ha.
+  - simpl.
+    auto.
+  - simpl.
+    apply IHHl.
+    apply HProp; auto.
+Qed.
+
+Lemma fold_left_to_unit {C} {ceq} `{Equivalence C ceq} 
+  (cunit : C) (f : C -> C -> C)
+  (Hlunit : forall x, ceq (f cunit x) x)
+  (Hrunit : forall x, ceq (f x cunit) x)
+  (Hassoc : forall x y z, ceq (f (f x y) z) (f x (f y z)))
+  (HProp : Morphisms.Proper (ceq ==> ceq ==> ceq) f) l c : 
+  ceq (fold_left f l c) (f c (fold_left f l cunit)).
+Proof.
+  revert c;
+  induction l;
+  intros c.
+  - simpl.
+    rewrite Hrunit.
+    reflexivity.
+  - simpl.
+    rewrite 2!(IHl (f _ _)).
+    rewrite Hlunit.
+    rewrite Hassoc.
+    reflexivity.
+Qed.
+
+Lemma fold_left_app_assoc {C} {ceq : relation C} `{Equivalence C ceq} 
+  (cunit : C) (f : C -> C -> C)  
+  (Hlunit : forall x, ceq (f cunit x) x)
+  (Hrunit : forall x, ceq (f x cunit) x)
+  (Hassoc : forall x y z, ceq (f (f x y) z) (f x (f y z)))
+  (HProp : Morphisms.Proper (ceq ==> ceq ==> ceq) f) l l' c : 
+  ceq (fold_left f (l ++ l') c) 
+    (f (fold_left f l c) (fold_left f l' cunit)).
+Proof.
+  rewrite fold_left_app. 
+  rewrite fold_left_to_unit by eassumption.
+  reflexivity.
+Qed.
+
+
+(* An optimized left-associated list product which has no [1] term 
+  unless the list is empty. *)
+Definition list_prod (l : list R) : R :=
+  match l with 
+  | [] => rI
+  | a :: l' => List.fold_left rmul l' a
+  end.
+
+Lemma list_prod_eq l : list_prod l == List.fold_left rmul l rI.
+Proof.
+  destruct l; [reflexivity|].
+  simpl.
+  now rewrite rmul_1_l.
+Qed.
+
+Lemma fold_left_product_perm_eq {l l' : list R} (Hl : Permutation l l') a : 
+  List.fold_left rmul l a == List.fold_left rmul l' a.
+Proof.
+  revert a; induction Hl; intros a.
+  - reflexivity.
+  - simpl.
+    auto.
+  - simpl.
+    rewrite <- 2!rmul_assoc, (rmul_comm y x).
+    reflexivity.
+  - rewrite IHHl1; apply IHHl2.
+Qed.
+
+Lemma product_perm_eq {l l' : list R} (Hl : Permutation l l') : 
+  list_prod l == list_prod l'.
+Proof.
+  rewrite 2!list_prod_eq.
+  now apply fold_left_product_perm_eq.
+Qed.
+
+Fixpoint insert_list_after_nth {C} (n : nat) (c : C) (l : list C) : list C :=
+  match n with 
+  | 0 => c :: l
+  | S n' => 
+    match l with 
+    | [] => [c]
+    | a :: l' => 
+      a :: (insert_list_after_nth n' c l')
+    end
+  end.
+
+
+Definition swap_list_with_nth {C} (n : nat) (l : list C) : list C :=
+  match l with
+  | [] => []
+  | a :: l' => insert_list_after_nth n a l'
+  end.
+
+Fixpoint swap_list_with_nth_after {C} (n : nat) (d : nat) (l : list C) : list C :=
+  match d with
+  | 0 => swap_list_with_nth n l
+  | S d' => 
+    match l with
+    | [] => []
+    | a :: l' => a :: (swap_list_with_nth_after n d' l')
+    end
+  end.
+
+Fixpoint swap_list_with_nths_after {C} (nds : list (nat * nat)) (l : list C) : list C :=
+  match nds with 
+  | [] => l
+  | (n, d) :: nds' =>
+    swap_list_with_nths_after nds' (swap_list_with_nth_after n d l)
+  end.
+
+Lemma insert_list_after_nth_perm {C} n c (l : list C) : 
+  Permutation (c :: l) (insert_list_after_nth n c l).
+Proof.
+  revert c l;
+  induction n; intros c l.
+  - reflexivity.
+  - destruct l; [reflexivity|]. 
+    simpl.
+    rewrite <- IHn.
+    constructor.
+Qed.
+
+Lemma swap_list_with_nth_perm {C} n (l : list C) : 
+  Permutation l (swap_list_with_nth n l).
+Proof.
+  destruct l; [reflexivity|].
+  apply insert_list_after_nth_perm.
+Qed.
+
+Lemma swap_list_with_nth_after_perm {C} n d (l : list C) : 
+  Permutation l (swap_list_with_nth_after n d l).
+Proof.
+  revert l;
+  induction d;
+  intros l; [apply swap_list_with_nth_perm|].
+  destruct l; [reflexivity|].
+  simpl.
+  rewrite <- IHd.
+  reflexivity.
+Qed.
+
+Lemma swap_list_with_nths_after_perm {C} nds (l : list C) : 
+  Permutation l (swap_list_with_nths_after nds l).
+Proof.
+  revert l;
+  induction nds as [|[n d]];
+  intros l.
+  - reflexivity.
+  - simpl.
+    rewrite <- IHnds.
+    apply swap_list_with_nth_after_perm.
+Qed.
 
 
 
+
+Inductive termtree :=
+  | termone : termtree
+  | termconst (r : R) : termtree
+  | termmul (l r : termtree) : termtree.
+
+Fixpoint realize_termtree (t : termtree) : R :=
+  match t with 
+  | termone => rI
+  | termconst r => r
+  | termmul l r => rmul (realize_termtree l) (realize_termtree r)
+  end.
+
+Fixpoint list_of_termtree (t : termtree) : list R :=
+  match t with 
+  | termone => []
+  | termconst r => [r]
+  | termmul l r => list_of_termtree l ++ list_of_termtree r
+  end.
+
+Lemma realize_termtree_eq_list_prod_list_of_termtree (t : termtree) : 
+  realize_termtree t == list_prod (list_of_termtree t).
+Proof.
+  rewrite list_prod_eq.
+  induction t; [simpl; ring..|].
+  simpl.
+  rewrite (fold_left_app_assoc 1) by ((intros ? **; ring) || apply _).
+  Morphisms.f_equiv; assumption.
+Qed.
+
+Lemma realize_termtree_eq_of_list_prod_perm (t t' : termtree) : 
+  Permutation (list_of_termtree t) (list_of_termtree t') -> 
+  realize_termtree t == realize_termtree t'.
+Proof.
+  intros Hperm.
+  rewrite 2!realize_termtree_eq_list_prod_list_of_termtree.
+  apply product_perm_eq, Hperm.
+Qed.
+
+
+
+Definition termtree_eq : relation termtree := fun t t' => 
+  Permutation (list_of_termtree t) (list_of_termtree t').
+
+Print Instances Equivalence.
+
+#[export] Instance termtree_eq_equivalence : Equivalence termtree_eq.
+Proof.
+  unfold termtree_eq.
+  split; hnf; intros. 
+  - now reflexivity.
+  - now symmetry.
+  - now etransitivity; eassumption.
+Qed.
+
+Definition termfun_eq {fT} (SfT : SummableTy termtree fT) : relation fT := 
+  summable_pointwise_relation termtree_eq SfT.
+
+Global Arguments termfun_eq {_} (!_) _ _ /.
+
+Definition summable_termfun_eq {fT fT'} 
+  (SfT : SummableTy termtree fT) (SfT' : SummableTy termtree fT') : 
+  fT -> fT' -> Prop :=
+  fun f f' => 
+  exists (P : STPerm SfT SfT'), termfun_eq SfT' (perm_args_of_STPerm P f) f'.
+
+
+Fixpoint sum_termfun {fT} (SfT : SummableTy termtree fT) : fT -> R :=
+  match SfT with 
+  | STnil => realize_termtree
+  | STcons A SA SfT' => fun f => 
+    sum_of (fun a => sum_termfun SfT' (f a))
+  end.
+
+
+
+Add Parametric Morphism : realize_termtree
+  with signature (termtree_eq ==> req) as realize_termtree_eq_of_termtree_eq.
+Proof.
+  apply realize_termtree_eq_of_list_prod_perm.
+Qed.
+
+Add Parametric Morphism {fT} (SfT : SummableTy termtree fT) : (sum_termfun SfT)
+  with signature (termfun_eq SfT ==> req) as sum_termfun_eq_of_termfun_eq.
+Proof.
+  unfold termfun_eq.
+  induction SfT.
+  - simpl.
+    intros ? ? ->.
+    reflexivity.
+  - simpl.
+    intros f f' Hf.
+    apply sum_of_ext.
+    intros a.
+    apply IHSfT.
+    apply Hf.
+Qed.
+
+Add Parametric Morphism {C} {fT fT'} 
+  (ceq : relation C)
+  {SfT : SummableTy C fT} {SfT' : SummableTy C fT'} (P : STPerm SfT SfT') : 
+  (perm_args_of_STPerm P) with signature 
+  summable_pointwise_relation ceq SfT ==> summable_pointwise_relation ceq SfT'
+  as perm_args_of_STPerm_summable_pointwise_mor.
+Proof.
+  induction P.
+  - simpl.
+    auto.
+  - simpl.
+    intros f f' Hf a.
+    apply IHP, Hf.
+  - simpl.
+    intros f f' Hf a b.
+    apply Hf.
+  - simpl. 
+    intros f f' Hf.
+    apply IHP2.
+    apply IHP1.
+    apply Hf.
+Qed.
+
+Lemma perm_args_of_STPerm_stperm_symm {C} {fT fT'} 
+  (ceq : relation C) `{Reflexive C ceq} `{Transitive C ceq}
+  {SfT : SummableTy C fT} {SfT' : SummableTy C fT'} (P : STPerm SfT SfT') f :
+  summable_pointwise_relation ceq SfT 
+    (perm_args_of_STPerm (stperm_symm _ _ P) (perm_args_of_STPerm P f))
+    f.
+Proof.
+  induction P.
+  - simpl; reflexivity.
+  - simpl.
+    intros a.
+    apply IHP.
+  - simpl.
+    intros b a.
+    apply summable_pointwise_relation_Reflexive, _.
+  - simpl.
+    pose proof @summable_pointwise_relation_Transitive.
+    rewrite IHP2.
+    apply IHP1.
+Qed.
+
+
+Lemma perm_args_of_STPerm_stperm_refl {C} {fT} 
+  (ceq : relation C) `{Reflexive C ceq}
+  (SfT : SummableTy C fT) f :
+  summable_pointwise_relation ceq SfT 
+    (perm_args_of_STPerm (stperm_refl SfT) f)
+    f.
+Proof.
+  induction SfT.
+  - simpl; reflexivity.
+  - simpl.
+    intros a.
+    auto.
+Qed.
+
+#[export] Instance summable_termfun_eq_equivalence 
+  {fT} (SfT : SummableTy termtree fT) : 
+  Equivalence (summable_termfun_eq SfT SfT).
+Proof.
+  split; intros ? *.
+  - exists (stperm_refl _).
+    simpl.
+    rewrite perm_args_of_STPerm_stperm_refl by apply _.
+    reflexivity.
+  - intros (P & HP).
+    exists (stperm_symm _ _ P).
+    rewrite <- HP.
+    apply perm_args_of_STPerm_stperm_symm; apply _.
+  - intros (P & HP) (P' & HP').
+    exists (stperm_trans _ _ _ P P').
+    simpl.
+    rewrite HP, HP'.
+    reflexivity.
+Qed.
+
+
+Lemma sum_termfun_eq_of_summable_termfun_eq {fT fT'} 
+  (SfT : SummableTy termtree fT) (SfT' : SummableTy termtree fT') f f' : 
+  summable_termfun_eq SfT SfT' f f' -> 
+  sum_termfun SfT f == sum_termfun SfT' f'.
+Proof.
+  intros (P & HP).
+  revert HP;
+  induction P;
+  simpl;
+  intros HP.
+  - now rewrite HP.
+  - apply sum_of_ext.
+    intros a.
+    apply IHP, HP.
+  - rewrite sum_of_comm.
+    apply sum_of_ext; intros a.
+    apply sum_of_ext; intros b.
+    specialize (HP a b).
+    rewrite HP.
+    reflexivity.
+  - rewrite <- IHP2 by eassumption.
+    apply IHP1.
+    reflexivity.
+Qed.
 
 
 
@@ -908,4 +1563,3 @@ Notation
 End Alternate.
 
 End Summation.
-
