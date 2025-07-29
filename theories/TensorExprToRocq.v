@@ -1,5 +1,5 @@
 Require Import Summable.
-Require Import tensorexpression.
+Require Import TensorExpr.
 Require Import FSetExtra.
 Import Ltac2.Init.
 

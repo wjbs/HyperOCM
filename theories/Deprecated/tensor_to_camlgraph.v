@@ -1,7 +1,7 @@
 Require Import Ltac2.Init.
 Require Import tensorexpression_int.
 Require Import FSetExtra.
-Require hypercaml_testing. 
+Require HypercamlTesting. 
 Require UTest.
 
 (* Change which interface we import here to change which 
@@ -486,7 +486,7 @@ Ltac2 test_cycle_graph () : UTest.t :=
 Ltac2 Eval UTest.check test_triangle_graph.
 Ltac2 Eval UTest.check test_cycle_graph.
 
-Import hypercaml_testing. 
+Import HypercamlTesting. 
 Import caml_test_graphs.
 
 Ltac2 print_tensor_of_graph (g : Graph.t) : unit :=

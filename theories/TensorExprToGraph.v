@@ -1,7 +1,7 @@
 Require Import Ltac2.Init.
-Require Import tensorexpression.
+Require Import TensorExpr.
+Require HypercamlTesting.
 Require Import FSetExtra.
-Require hypercaml_testing.
 Require UTest.
 
 (* Change which interface we import here to change which 
@@ -188,7 +188,7 @@ Ltac2 hypergraph_to_tensor_list (g : Graph.t)
   
 Module Testing.
 
-Import hypercaml_testing.caml_test_graphs.
+Import HypercamlTesting.caml_test_graphs.
 
 Import Printing.
 

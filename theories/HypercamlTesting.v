@@ -1,6 +1,4 @@
 Require HypercamlInterface.
-Require hypergraph.
-Require hypergraph_compat.
 Require UTest.
 
 Import Ltac2.Init.
