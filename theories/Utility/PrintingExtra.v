@@ -203,6 +203,14 @@ Import PpExtra.
 Ltac2 of_list (pr : 'a -> message) : 'a list -> message := fun l => 
   str "[" ++ prlist_with_sep pr_comma pr l ++ str "]".
 
+Ltac2 of_pair (pra : 'a -> message) (prb : 'b -> message) : 
+  'a * 'b -> message := fun (a, b) => 
+  surround (pra a ++ pr_comma() ++ prb b).
+
+Ltac2 of_triple (pra : 'a -> message) (prb : 'b -> message)  
+  (prc : 'c -> message) : 
+  'a * 'b * 'c -> message := fun (a, b, c) => 
+  surround (pra a ++ pr_comma() ++ prb b ++ pr_comma() ++ prc c).
 
 
 Ltac2 print_sep_list sep (l : 'a list) (f : 'a -> string) : string :=

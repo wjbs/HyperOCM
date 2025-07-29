@@ -518,3 +518,71 @@ Ltac2 fold2 : ('a -> 'b -> 'c -> 'd option -> 'e option -> 'acc -> 'acc) ->
 
 End FMap3.
 
+
+
+Module MapNotations.
+
+Ltac2 Notation 
+  "!Set" "(" tag(tactic(6)) ")" "{" elems(list0(tactic(5), ";")) "}" : 5 :=
+  FSet.of_list tag elems.
+
+Ltac2 Notation 
+  "!Map" "(" tag(tactic(6)) ")" "{" 
+    elems(list0(
+      seq (tactic(5), ":", tactic(5)), ";")) "}" : 5 :=
+  List.fold_right (fun (k, v) => FMap.add k v) elems (FMap.empty tag).
+
+Ltac2 Notation 
+  "!Set2" "(" tag1(tactic(2)) "," tag2(tactic(2)) ")" 
+    "{" elems(list0(
+      seq (tactic(2), ",", tactic(2)), ";")) "}" : 5 :=
+  FSet2.of_list tag1 tag2 elems.
+
+Ltac2 Notation 
+  "!Map2" "(" tag1(tactic(2)) "," tag2(tactic(2)) ")" "{" 
+    elems(list0(
+      seq (tactic(2), ",", tactic(2), ":", tactic(5)), ";")) "}" : 5 :=
+  List.fold_right (fun (k1, k2, v) => FMap2.add k1 k2 v) 
+    elems (FMap2.empty tag1 tag2).
+
+Ltac2 Notation 
+  "!Set3" "(" tag1(tactic(2)) "," tag2(tactic(2)) "," tag3(tactic(2)) ")" "{" 
+    elems(list0(
+      seq (tactic(2), ",", tactic(2), 
+        ",", tactic(2)), ";")) "}" : 5 :=
+  FSet3.of_list tag1 tag2 tag3 elems.
+
+Ltac2 Notation
+  "!Map3" "(" tag1(tactic(2)) "," tag2(tactic(2)) "," tag3(tactic(2)) ")" "{" 
+    elems(list0(
+      seq (tactic(2), ",", tactic(2), 
+        ",", tactic(2), ":", tactic(5)), ";")) "}" : 5 :=
+  List.fold_right (fun (k1, k2, k3, v) => FMap3.add k1 k2 k3 v) 
+    elems (FMap3.empty tag1 tag2 tag3).
+
+
+(* TODO: Make proper tests for the notations. 
+Module Testing.
+
+Ltac2 Eval !Set(FSet.Tags.int_tag) {1;2;3}.
+
+Import FSet.Tags.
+
+Ltac2 Eval !Map(int_tag) {1 : '1; 2 : '2; 3 : '(3 * 1 + 0)}.
+
+Ltac2 Eval !Set2(int_tag, string_tag) { 1, "one"; 1, "One"; 2, "two"}.
+
+Ltac2 Eval !Map2(int_tag, string_tag) 
+  { 1, "one" : false; 1, "One" : true; 2, "two" : false}.
+
+Ltac2 Eval !Set3(int_tag, string_tag, ident_tag) 
+  { 1, "one", ident:(one) ; 1, "One", ident:(One); 2, "two", ident:(two)}.
+
+Ltac2 Eval !Map3(int_tag, string_tag, ident_tag) 
+  { 1, "one", ident:(one) : false ; 
+    1, "One", ident:(One) : true ;
+    2, "two", ident:(two) : false}.
+
+End Testing. *)
+
+End MapNotations.
