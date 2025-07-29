@@ -114,8 +114,9 @@ Ltac2 Type TensorList := {
 (* Convert a TensorList to a TensorExpr in the natural way*)
 Ltac2 tensorexpr_of_tensorlist (t : TensorList) : TensorExpr :=
   List.fold_right (fun register t => Sum register t) (t.(sums))
-    (Product (List.map (fun (name, lower, upper) => Abstract name lower upper) 
-      (t.(abstracts)))).
+    (let l := List.map (fun (name, lower, upper) => Abstract name lower upper) 
+      (t.(abstracts)) in 
+    if Int.equal (List.length l) 1 then List.hd l else Product l).
 
 Module Printing.
 Export PrintingExtra.
@@ -142,6 +143,13 @@ Local Ltac2 is_abstract (t : TensorExpr) : bool :=
   | _ => false
   end.
 
+Ltac2 pr_abs_data pr_tyvar name (lower : TypedVar list) 
+  (upper : TypedVar list) : message :=
+  str name ++ brk 0 2 ++ str "_" ++ str "[" 
+  ++ prlist_with_sep pr_comma pr_tyvar lower ++ str "]" 
+  ++ brk 0 2 ++ str "^" ++ str "[" 
+  ++ prlist_with_sep pr_comma pr_tyvar upper ++ str "]".
+
 (* Prints a tensor expression, marking the types of any 
   variables _not_ in the given set of bound variables explicitly *)
 Ltac2 rec pr_tensorexpr_with_varlist (bound_vars : TypedVarSet) 
@@ -161,10 +169,7 @@ Ltac2 rec pr_tensorexpr_with_varlist (bound_vars : TypedVarSet)
   match t with 
   | Abstract name lower upper => 
     (* Print the abstract tensor and the registers it references *)
-    str name ++ brk 0 2 ++ str "_" ++ str "[" 
-    ++ prlist_with_sep pr_comma (pr_typedvar false) lower ++ str "]" 
-    ++ brk 0 2 ++ str "^" ++ str "[" 
-    ++ prlist_with_sep pr_comma (pr_typedvar false) upper ++ str "]" 
+    pr_abs_data (pr_typedvar false) name lower upper
   | Product ts => 
     (* Print the tensors separated by "⋅", parenthesizing as necessary to 
     close summations and indicate association *)
@@ -215,8 +220,25 @@ Ltac2 rec pr_tensorexpr_with_varlist (bound_vars : TypedVarSet)
 Ltac2 pr_tensorexpr (t : TensorExpr) : message :=
   pr_tensorexpr_with_varlist (FSet2.empty string_tag string_tag) t.
 
-Ltac2 pr_tensorlist (t : TensorList) : message :=
+Ltac2 pr_tensorlist_as_tensorexpr (t : TensorList) : message :=
   pr_tensorexpr (tensorexpr_of_tensorlist t).
+
+Ltac2 pr_tensorlist (t : TensorList) : message :=
+  let pr_type_var ty var := str var ++ spc() ++ pr_colon() ++ str ty in
+  let pr_typedvar (paren : bool)
+    ((ty, var) : TypedVar) : message := 
+      let msg := pr_type_var ty var in 
+      if paren then (* Surround with parens *) surround msg 
+        else (* Leave alone *) msg
+    in 
+  str "!∑" ++ spc() ++ 
+    prlist_with_sep (pr_comma) (pr_typedvar false) (t.(sums)) 
+    ++ str ";" ++ spc() ++
+    hov 2 (
+    prlist_with_sep (fun()=> str " *" ++ spc())
+      (fun (name, lower, upper) => 
+        hov 2 (str "@" ++ pr_abs_data (pr_typedvar false) name lower upper))
+      (t.(abstracts))).
 
 End Printing.
 
@@ -470,7 +492,7 @@ Ltac2 tensorlist_times (avoids : TypedVarSet)
       end in 
 
   let avoid_vars := FSet2.union avoids 
-    (FSet2.union (tensorlist_bound_set l) (tensorlist_bound_set r)) in 
+    (FSet2.union (tensorlist_free_set l) (tensorlist_free_set r)) in 
   
   let (sums, abs) := 
     go avoid_vars (l.(sums)) (l.(abstracts)) 
@@ -501,6 +523,11 @@ Ltac2 tensorlist_of_tensorexpr (t : TensorExpr) : TensorList :=
   let used_vars := free_register_set t in 
   go (used_vars) t.
 
+Import Printing.
+Import PrintingExtra.
+Import Message.
+Import PpExtra.
+
 (* Check whether two terms are alpha-convertible, i.e. equal up to 
   renaming variables bound in contractions. *)
 Ltac2 rec alpha_convertible (t : TensorExpr) (s : TensorExpr) : bool :=
@@ -509,14 +536,637 @@ Ltac2 rec alpha_convertible (t : TensorExpr) (s : TensorExpr) : bool :=
     equal_absdata (name, low, up) (name', low', up')
   | Product ts, Product ss => 
     List.equal alpha_convertible ts ss
-  | Sum reg t', Sum reg' s' => 
-    let (s'_renamed, _) := relabel_one reg reg' s' in 
-    alpha_convertible t' s'_renamed
+  | Sum (ty, var) t', Sum (ty', var') s' => 
+    (* Shortcut for equal identifiers *)
+    if equal_typedvar (ty, var) (ty', var') then 
+      alpha_convertible t' s' else
+    if String.equal ty ty' then 
+      (* TODO: This is a real hack to avoid issues where binders
+        bind multiple values (e.g. 
+          ∑ a : A, ∑ a : A, f a a is not convertible to
+          ∑ b : A, ∑ c : A, f b c). Can we do better, or be more 
+        sure of correctness? Maybe find an existing algorithm to implement? *)
+      let new_tyvar := fresh_register (ty, var) 
+        (FSet2.union 
+          (register_set_full t')
+          (register_set_full s')) in 
+      let (s'_renamed, _) := relabel_one (ty', var') new_tyvar s' in 
+      let (t'_renamed, _) := relabel_one (ty, var) new_tyvar t' in
+      (* Std.assert_true *)
+
+      
+      (* let pr_tyvar t v := surround (str v ++ spc()
+        ++ pr_colon() ++ str t) in
+      let conv_l := alpha_convertible t' s'_renamed in 
+      let conv_r := alpha_convertible t'_renamed s' in 
+      print (str "Old reg" ++ pr_colon() ++ pr_tyvar ty var ++ pr_semicolon()
+        ++ fnl() ++ str "New reg" ++ pr_colon() ++ pr_tyvar ty' var'
+        ++ fnl() ++ str "t' = " ++ pr_tensorexpr t' ++ pr_semicolon()
+        ++ fnl() ++ str "s' = " ++ pr_tensorexpr s' ++ pr_semicolon()
+        ++ fnl() ++ str "t'_renamed = " ++ pr_tensorexpr t'_renamed ++ pr_semicolon()
+        ++ fnl() ++ str "s'_renamed = " ++ pr_tensorexpr s'_renamed ++ pr_semicolon()
+        ++ fnl() ++ str "t' ~ s'_renamed = " ++ bool conv_l ++ pr_semicolon()
+        ++ fnl() ++ str "t'_renamed ~ s' = " ++ bool conv_r ++ pr_semicolon()
+        ++ fnl() ++ str "equiv = " ++ bool (Bool.and conv_l conv_r)
+        ); *)
+      alpha_convertible t'_renamed s'_renamed
+    else
+      false
   | _ => false
   end.
+
+(* Test whether two [TensorList]s are equal up to permutation *)
+Ltac2 tensorlist_perm_eq (t : TensorList) (s : TensorList) : bool :=
+  Bool.and 
+    (Permutations.perm_eq equal_typedvar (t.(sums)) (s.(sums)))
+    (Permutations.perm_eq equal_absdata (t.(abstracts)) (s.(abstracts))).
+
+(* Auxiliary function to test whether the data comprising two 
+  [TensorList]s are equal up to permutation and alpha-equivalence. 
+  If they are, returns the swap list of the abstract tensors
+  and the relabeling of the sums necessary to turn the 
+  _left_ argument(s) into the _right_, _up to permutation of sums_. *)
+Ltac2 tensorlist_data_alpha_perm_eq
+  (lsums : TypedVar list) (labs : AbsData list)
+  (rsums : TypedVar list) (rabs : AbsData list) : 
+  ( (int * int) list * (* Abstracts swap list *)
+    (TypeIdx, VarIdx, VarIdx) FMap2.t (* Relabeling *)
+    ) option :=
+  let relabel_sums (old : TypedVar) (new : TypedVar) (l : TypedVar list) :=
+    List.map (fun reg => if equal_typedvar reg old then new else reg)
+      l in 
+  let relabel_abs (old : TypedVar) (new : TypedVar) (abs : AbsData list) :=
+    let rel_sums := relabel_sums old new in 
+    List.map (fun (name, lower, upper) => 
+      (name, rel_sums lower, rel_sums upper))
+      abs in 
+  (* NOTE: [avoid] contains all the variables, free or bound, 
+     of all the data *)
+  let avoid_list := List.concat [lsums; rsums;
+    List.flat_map (fun (_, l, u) => List.append l u) 
+      (List.append labs rabs)] in 
+  let avoid := FSet2.of_list string_tag string_tag avoid_list in
+
+  let rec go avoid lsums labs rsums rabs :
+      ((int * int) list * (TypeIdx, VarIdx, VarIdx) FMap2.t) option 
+      := 
+    (* INVARIANT: [avoid] contains all the variables, 
+       free or bound, of all the data *)
+    match lsums with 
+    | [] => 
+      (* If no sums on LHS, must have no sums on RHS*)
+      if Bool.neg (List.is_empty rsums) then 
+        None else 
+      (* Now, no sums on either side, so we need only test 
+        equality up to permutations, no alpha-equivalence *)
+      Option.bind (Permutations.perm_reordering_swaps_after 
+        equal_absdata labs rabs)
+        (fun swaps => 
+        Some (swaps, FMap2.empty string_tag string_tag))
+    | (ty, var) :: lsums' => 
+      (* If we have a sum to deal with, find the indices in [rsums] 
+        with variables of matching types, hence that we can possibly
+        rename into.  *)
+      let relabeling_opts := 
+        List.filter (fun (_idx, (ty', _var)) => String.equal ty ty')
+          (List.enumerate rsums) in
+      (* Now, get the first of these that works, i.e. for which 
+        the recursive call succeeds. (For efficiency reasons on 
+        the proof generation side, we search in reverse, i.e. 
+        with fold_right) *)
+      fst (List.fold_right 
+        (fun (idx, (_ty, var')) (may_match, avoid) => 
+          (* For each matching index... *)
+          match may_match with
+          | Some t => 
+            (* If a previous match worked out, use that *)
+            (Some t, avoid)
+          | None => 
+            (* Otherwise, set up the recursive call *)
+            
+            (* Set up the relabelings *)
+            let lold := (ty, var) in let rold := (ty, var') in 
+            (* Get a fresh identifier, for robust alpha-equivlance testing *)
+            let newreg := fresh_register lold avoid in 
+            let avoid' := FSet2.add (fst newreg) (snd newreg) avoid in 
+            
+            
+            (* Note: Relabeling the LHS sums is only necessary 
+              if they are redundant (which is officially unsupported), 
+              but for safety we may as well *)
+            let lsums'_rel := 
+              relabel_sums lold newreg lsums' in 
+            let rsums'_rel := 
+              relabel_sums rold newreg (remove_nth idx rsums) in 
+            let labs_rel := relabel_abs lold newreg labs in 
+            let rabs_rel := relabel_abs rold newreg rabs in 
+            
+
+            (* Now, try the recursive call *)
+            (Option.bind 
+              (go avoid' lsums'_rel labs_rel rsums'_rel rabs_rel)
+              (fun (swaps, relabelings) => 
+              (Some (swaps, FMap2.add ty var var' relabelings))), avoid')
+          end)
+        relabeling_opts (None, avoid))
+    end
+  in 
+  go avoid lsums labs rsums rabs.
+        
+
+
+
+(* Test whether two [TensorList]s are equal up to permutation
+  and alpha-equivalence (though preserving free variables).
+  If they are, returns the swap list of the sums, the swap list 
+  of the abstract tensors, and the relabeling of the sums 
+  necessary to turn the  _left_ argument(s) into the _right_. *)
+Ltac2 tensorlist_alpha_perm_eq_data (l : TensorList) (r : TensorList) :
+  ( (int * int) list * (* Sums swap list *)
+    (int * int) list * (* Abstracts swap list *)
+    (TypeIdx, VarIdx, VarIdx) FMap2.t (* Relabeling *)
+    ) option :=
+  Option.bind (tensorlist_data_alpha_perm_eq 
+    (l.(sums)) (l.(abstracts)) (r.(sums)) (r.(abstracts)))
+  (fun (abs_swaps, relabelings) => 
+    (* Now, just need to compute the swaps for the sums *)
+    Option.bind (Permutations.perm_reordering_swaps_after equal_typedvar
+      (List.map (fun (ty, var) => 
+          (ty, Option.default var 
+            (FMap2.find_opt ty var relabelings)))
+        (l.(sums)))
+      (r.(sums))) 
+  (fun sum_swaps => 
+    Some (sum_swaps, abs_swaps, relabelings))).
+
+(* Test whether two [TensorList]s are equal up to permutation
+  and alpha-equivalence (though preserving free variables). *)
+Ltac2 tensorlist_alpha_perm_eq (l : TensorList) (r : TensorList) : bool :=
+  match tensorlist_alpha_perm_eq_data l r with 
+  | Some _ => true
+  | None => false
+  end.
+
+
+(* Test whether two [TensorExpr]s are semantically equal, i.e.
+  up to renaming of bound variales, distributivity, and 
+  commutativity. In particular, convert them to [TensorList]s 
+  and test for the same. *)
+Ltac2 tensorexpr_semantically_equal (t : TensorExpr) (s : TensorExpr) : bool :=
+  tensorlist_alpha_perm_eq 
+    (tensorlist_of_tensorexpr t)
+    (tensorlist_of_tensorexpr s).
+
+(* Test whether two tensor expressions are literally equal *)
+Ltac2 rec equal_tensorexpr (t : TensorExpr) (s : TensorExpr) : bool :=
+  match t, s with 
+  | Product ts, Product ss => 
+    List.equal equal_tensorexpr ts ss
+  | Sum treg t, Sum sreg s => 
+    match equal_typedvar treg sreg with 
+    | false => false
+    | true => equal_tensorexpr t s
+    end
+  | Abstract tname tlow tup, Abstract sname slow sup => 
+    equal_absdata (tname, tlow, tup) (sname, slow, sup)
+  | _, _ => false
+  end.
+
+(* Test whether two [TensorList]s are literally equal *)
+Ltac2 equal_tensorlist (t : TensorList) (s : TensorList) : bool :=
+  Bool.and 
+    (List.equal equal_typedvar (t.(sums)) (s.(sums)))
+    (List.equal equal_absdata (t.(abstracts)) (s.(abstracts))).
+
+Module TensorExprNotation.
+
+Ltac2 Notation "@" fnc(ident)
+  "_[" lower(list0(seq(ident, ":", ident), ",")) "]"
+  "^[" upper(list0(seq(ident, ":", ident), ",")) "]" : 2 :=
+  Abstract (Ident.to_string fnc)
+    (List.map (fun (v, t) => 
+      (Ident.to_string t, Ident.to_string v)) lower)
+    (List.map (fun (v, t) => 
+      (Ident.to_string t, Ident.to_string v)) upper).
+
+
+Ltac2 Notation "∑" var(ident) ":" type(ident) "," body(next) : 4 :=
+  Sum (Ident.to_string type, Ident.to_string var) body.
+
+(* Multiply two [TensorExpr]s, with left associativity *)
+Ltac2 tprod2 (l : TensorExpr) (r : TensorExpr) : TensorExpr :=
+  match l with 
+  | Product ts => Product (List.append ts [r])
+  | _ => Product [l; r]
+  end.
+
+Ltac2 Notation l(self) "*" r(self) : 3 :=
+  tprod2 l r.
+
+
+(* Notation for [TensorList]s *)
+
+
+Ltac2 Notation "!∑" 
+  registers(list0 (seq(ident,":",ident), ","))
+  ";"
+  abstracts(list0(
+    seq(
+      "@", ident,
+      "_[", list0(seq(ident, ":", ident), ","), "]",
+      "^[", list0(seq(ident, ":", ident), ","), "]"
+    ),
+    "*"
+  )) : 4 :=
+  let of := Ident.to_string in 
+  let ofs := List.map (fun (var, ty) => (of ty, of var)) in 
+  {sums := ofs registers;
+  abstracts := List.map (fun (name, lower, upper) => 
+      (of name, ofs lower, ofs upper)) abstracts}.
+
+End TensorExprNotation.
 
 Module Testing.
 
 (* TODO: Testing *)
+
+
+Import TensorExprNotation.
+Import Printing.
+
+
+
+(* FIXME: Move *)
+Ltac2 uncurry (f : 'a -> 'b -> 'c) : 'a * 'b -> 'c :=
+  fun (a, b) => f a b.
+(* FIXME: Move *)
+Ltac2 curry (f : 'a * 'b -> 'c) : 'a -> 'b -> 'c :=
+  fun a b => f (a, b).
+(* FIXME: Move *)
+Ltac2 neg_rel (f : 'a -> 'b -> bool) : 'a -> 'b -> bool :=
+  fun a b => Bool.neg (f a b).
+
+(* Test that a [TensorExpr] is literally equal to itself 
+  after being converted to and from a [TensorList] *)
+Ltac2 test_tensorexpr_eq_to_from_tensorlist (t : TensorExpr) : UTest.t :=
+  UTest.value_eqv_pr 
+    (equal_tensorexpr)
+    (Printing.pr_tensorexpr) 
+    "TensorExpr should be equal to itself after conversion to and from a TensorList"
+    t
+    (tensorexpr_of_tensorlist (tensorlist_of_tensorexpr t)).
+
+(* Test that a [TensorList] is literally equal to itself
+  after being converted to and from a [TensorExpr] *)
+Ltac2 test_tensorlist_eq_to_from_tensorexpr (t : TensorList) : UTest.t :=
+  UTest.value_eqv_pr 
+    (equal_tensorlist)
+    (Printing.pr_tensorlist) 
+    "TensorList should be equal to itself after conversion to and from a TensorExpr"
+    t
+    (tensorlist_of_tensorexpr (tensorexpr_of_tensorlist t)).
+
+(* Test the value of a [TensorExpr] after being converted to 
+  a [TensorList], up to alpha equivlance*)
+Ltac2 test_tensorexpr_to_tensorlist_val (t : TensorExpr) (tl : TensorList) : UTest.t :=
+  UTest.value_eqv_pr 
+    (fun tl tl' => 
+      (alpha_convertible (tensorexpr_of_tensorlist tl) (tensorexpr_of_tensorlist tl')))
+    (Printing.pr_tensorlist)
+    "TensorExpr should have the given value after conversion to a TensorList, up to alpha-equivalence"
+    tl
+    (tensorlist_of_tensorexpr t).
+
+(* Test the notation for tensor expressions *)
+Ltac2 test_tensorexpr_notation_value (exp : TensorExpr) (test_val : TensorExpr) : UTest.t :=
+  UTest.value_eqv_pr 
+    (equal_tensorexpr)
+    (Printing.pr_tensorexpr) 
+    "TensorExpr notation test"
+    exp
+    (test_val).
+
+(* Test the notation for tensor lists *)
+Ltac2 test_tensorlist_notation_value (exp : TensorList) (test_val : TensorList) : UTest.t :=
+  UTest.value_eqv_pr 
+    (equal_tensorlist)
+    (Printing.pr_tensorlist) 
+    "TensorList notation test"
+    exp
+    (test_val).
+
+(* Test two tensors are equal up to alpha-equivalence *)
+Ltac2 test_tensors_alpha_equiv on_err (exp : TensorExpr) (test_val : TensorExpr) : UTest.t :=
+  UTest.value_eqv_pr 
+    (alpha_convertible)
+    (Printing.pr_tensorexpr) 
+    (String.concat "" ["tensors were not alpha equivalent! Message: "; on_err])
+    exp
+    (test_val).
+
+
+(* Test two tensors are _not_ equal up to alpha-equivalence *)
+Ltac2 test_tensors_non_alpha_equiv on_err 
+  (exp : TensorExpr) (test_val : TensorExpr) : UTest.t :=
+  UTest.value_eqv_pr 
+    (neg_rel alpha_convertible)
+    (Printing.pr_tensorexpr) 
+    (String.concat "" ["tensors were alpha equivalent and should not ";
+      "have been! Message: "; on_err])
+    exp
+    (test_val).
+
+(* Test two [TensorList]s are equal up to permutation, but not alpha-equivalence *)
+Ltac2 test_tensorlists_are_perm_eq (exp : TensorList) (test_val : TensorList) : UTest.t :=
+  UTest.value_eqv_pr
+    (tensorlist_perm_eq)
+    (pr_tensorlist) 
+    "TensorLists should be equal up to permutation"
+    exp
+    test_val.
+
+(* Test two [TensorList]s are equal up to permutation and alpha-equivalence *)
+Ltac2 test_tensorlists_are_alpha_perm_eq (exp : TensorList) (test_val : TensorList) : UTest.t :=
+  UTest.value_eqv_pr
+    (tensorlist_alpha_perm_eq)
+    (pr_tensorlist) 
+    "TensorLists should be equal up to permutation and alpha-equivalence"
+    exp
+    test_val.
+
+(* Test two [TensorExpr]s are equal up to semantic *)
+Ltac2 test_tensorexprs_are_sem_eq (exp : TensorExpr) (test_val : TensorExpr) : UTest.t :=
+  UTest.value_eqv_pr
+    (tensorexpr_semantically_equal)
+    (pr_tensorexpr) 
+    "TensorExprs should be equal up to permutation and alpha-equivalence"
+    exp
+    test_val.
+
+(* Test two [TensorList]s are not equal up to permutation, but not alpha-equivalence *)
+Ltac2 test_tensorlists_not_perm_eq (exp : TensorList) (test_val : TensorList) : UTest.t :=
+  UTest.value_eqv_pr
+    (neg_rel tensorlist_perm_eq)
+    (pr_tensorlist) 
+    "TensorLists should be equal up to permutation"
+    exp
+    test_val.
+
+(* Test two [TensorList]s are not equal up to permutation and alpha-equivalence *)
+Ltac2 test_tensorlists_not_alpha_perm_eq (exp : TensorList) (test_val : TensorList) : UTest.t :=
+  UTest.value_eqv_pr
+    (neg_rel tensorlist_alpha_perm_eq)
+    (pr_tensorlist) 
+    "TensorLists should be equal up to permutation and alpha-equivalence"
+    exp
+    test_val.
+
+(* Test two [TensorExpr]s are not equal up to semantic *)
+Ltac2 test_tensorexprs_not_sem_eq (exp : TensorExpr) (test_val : TensorExpr) : UTest.t :=
+  UTest.value_eqv_pr
+    (neg_rel tensorexpr_semantically_equal)
+    (pr_tensorexpr) 
+    "TensorExprs should be equal up to permutation and alpha-equivalence"
+    exp
+    test_val.
+
+(* Values on which to test the functions *)
+
+Ltac2 _tensorexpr_notation () :=
+  [ 
+    (Abstract "f" [("A", "a")] [("B", "b")], @f _[a : A]^[b : B]);
+    (Product [Abstract "f" [("A", "a")] ["B", "b"]; Abstract "g" [] ["C", "c"]],
+      (@f _[a : A]^[b : B] * @g _[]^[c : C]));
+    (Product [(Sum ("A", "a") (Sum ("A", "a'") 
+      (Abstract "f" [("A", "a")] ["A", "a'"])));
+      Sum ("B", "b") (Abstract "g" [] ["B", "b"])],
+      ((∑ a : A, ∑a' : A, @ f _[a : A]^[a' : A]) * 
+        ∑b : B, @ g _[]^[b : B]));
+    ((Sum ("A", "a") (Sum ("A", "a'") (Product [
+      (Abstract "f" [("A", "a")] ["A", "a'"]);
+      Sum ("B", "b") (Abstract "g" [] ["B", "b"])]))),
+      ∑ a : A, ∑a' : A, @ f _[a : A]^[a' : A] * 
+        ∑b : B, @ g _[]^[b : B])
+  ].
+
+Ltac2 _tensorlist_notation () := 
+  [
+    ({sums := [("A", "a"); ("A", "a'"); ("B", "b")];
+      abstracts := [("f", [("A", "a")], [("B", "b")]);
+        ("g", [], ["C", "c"]); ("h", ["D", "d"], [])]},
+      !∑ a : A, a' : A, b : B; @ f _[a : A]^[b : B] * @ g _[]^[c : C] * 
+        @h _[d : D]^[])
+  ].
+
+Ltac2 _alpha_equiv () := 
+  [
+    ((∑ a : A, @f _[]^[]), (∑ a' : A, @f _[]^[]));
+    ((∑ a : A, @f _[a : A]^[]), (∑ a' : A, @f _[a' : A]^[]));
+    ((∑ a : A, @f _[a : A]^[c : C]), (∑ a' : A, @f _[a' : A]^[c : C]));
+    ((∑ a : A, ∑ b : B, @f _[a : A]^[] * @ g _[]^[b : B]),
+     ∑ a : A, ∑ b' : B, @f _[a : A]^[] * @ g _[]^[b' : B]);
+    ((∑ a : A, ∑ a : B, @f _[a : A]^[a : B]), 
+     ∑ b : A, ∑ c : B, @f _[b : A]^[c : B]); (* TODO: Remove this if we make types irrelevant for names *)
+    ((∑ a : A, ∑ a' : A, ∑ c : C, @f _[a : A, a' : A]^[c : C]),
+     (∑ a' : A, ∑ a : A, ∑ c' : C, @f _[a' : A, a : A]^[c' : C]))
+  ].
+
+Ltac2 _non_alpha_equiv () := 
+  [
+    ((∑ a : A, @f _[]^[]), (∑ a' : B, @f _[]^[])); (* Types must match *)
+    ((∑ a : A, @f _[a : A]^[a : A]), (∑ a' : A, @f _[a' : A]^[]));
+    ((∑ a : A, @f _[a : A]^[c : C]), (∑ a' : A, @f _[a' : A]^[c' : C])); (* Free variables must match *)
+    ((∑ a : A, ∑ b : B, @ g _[]^[b : B]) * @f _[a : A]^[],
+     ∑ a : A, ∑ b' : B, @f _[a : A]^[] * @ g _[]^[b' : B]);
+    ((∑ a : A, ∑ a : A, @f _[a : A]^[a : A]), 
+     ∑ b : A, ∑ c : A, @f _[b : A]^[c : A]);
+     ((∑ b : A, ∑ c : A, @f _[b : A]^[c : A]),
+      (∑ a : A, ∑ a : A, @f _[a : A]^[a : A]))
+  ].
+
+Ltac2 _equal_to_from_tensorexprs () : (TensorExpr list) :=
+  [
+    (∑ a' : A, @f _[a' : A]^[c' : C]);
+    (∑ a : A, ∑ b : B, @ g _[]^[b : B] * @f _[a : A]^[]);
+    (∑ a : A, ∑ b' : B, @f _[a : A]^[] * @ g _[]^[b' : B])
+  ].
+
+Ltac2 _equal_to_from_tensorlists () : (TensorList list) :=
+  [
+    (!∑ a' : A; @f _[a' : A]^[c' : C]);
+    (!∑ a : A, b : B; @ g _[]^[b : B] * @f _[a : A]^[]);
+    (!∑ a : A, b' : B; @f _[a : A]^[] * @ g _[]^[b' : B])
+  ].
+
+
+Ltac2 _to_tensorlist_vals () : (TensorExpr* TensorList) list :=
+  [
+    (((∑ a : A, @f _[a : A]^[]) * (∑ a : A, @g _[a : A]^[])),
+      !∑ a : A, a' : A; @f _[a : A]^[] * @g _[a' : A]^[])
+  ].
+
+
+Ltac2 _tensorlist_perm_eq () : (TensorList * TensorList) list :=
+  [
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C]),
+     (!∑ b : B, a : A, c : C; @f _[a : A, b : B]^[c : C]));
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C]),
+     (!∑ b : B, c : C, a : A; @f _[a : A, b : B]^[c : C]));
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C] * @g _[]^[]),
+     (!∑ b : B, c : C, a : A; @g _[]^[] * @f _[a : A, b : B]^[c : C]))
+  ].
+
+
+Ltac2 _tensorlist_not_perm_eq () : (TensorList * TensorList) list :=
+  [
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C]),
+     (!∑ b : B, a : A, c' : C; @f _[a : A, b : B]^[c' : C]));
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C]),
+     (!∑ b : B, c : C, a : A; @f _[a : A, b : B]^[c : C] * @g _[]^[]));
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C] * @g _[]^[c : C]),
+     (!∑ b : B, c : C, a : A; @g _[]^[] * @f _[a : A, b : B]^[c : C]))
+  ].
+
+Ltac2 _tensorlist_alpha_perm_eq () : (TensorList * TensorList) list :=
+  List.append (_tensorlist_perm_eq()) [
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C]),
+     (!∑ b : B, a : A, c' : C; @f _[a : A, b : B]^[c' : C]));
+    ((!∑ a : A, a' : A, c : C; @f _[a : A, a' : A]^[c : C]),
+     (!∑ a' : A, a : A, c' : C; @f _[a' : A, a : A]^[c' : C]));
+    ((!∑ a : A, a' : A, c : C; @f _[a : A, a' : A]^[c : C]),
+     (!∑ a : A, a' : A, c : C; @f _[a' : A, a : A]^[c : C]))
+  ].
+
+Ltac2 _tensorlist_not_alpha_perm_eq () : (TensorList * TensorList) list :=
+  [
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C]),
+     (!∑ b : B, c : C, a : A; @f _[a : A, b : B]^[c : C] * @g _[]^[]));
+    ((!∑ a : A, b : B, c : C; @f _[a : A, b : B]^[c : C] * @g _[]^[c : C]),
+     (!∑ b : B, c : C, a : A; @g _[]^[] * @f _[a : A, b : B]^[c : C]))
+  ].
+
+Local Ltac2 _on_both (f : 'a -> 'b) : 'a * 'a -> 'b * 'b :=
+  fun (a, a') => (f a, f a').
+
+Ltac2 _tensorexpr_sem_eq () : (TensorExpr * TensorExpr) list :=
+  List.append (
+    List.append 
+      (List.map (_on_both tensorexpr_of_tensorlist)
+        (_tensorlist_alpha_perm_eq())) 
+      (_alpha_equiv())) [
+    ((∑ a : A, ∑ b : B, @f _[a : A]^[b : B] * ∑ c : C, @g _[a : A]^[b : B, c : C]),
+     (∑ c : C, ∑ b' : B, ∑ a : A, @g _[a : A]^[b' : B, c : C] * @f _[a : A]^[b' : B]));
+    ((∑ a : A, ∑ b : B, @f _[a : A]^[b : B] * ∑ c : C, @g _[a : A]^[c : C]),
+     (∑ c : C, ∑ a : A, @g _[a : A]^[c : C] * ∑ b' : B, @f _[a : A]^[b' : B]))
+  ].
+
+Ltac2 _tensorexpr_not_sem_eq () : (TensorExpr * TensorExpr) list :=
+  List.append (
+    (List.map (_on_both tensorexpr_of_tensorlist)
+        (_tensorlist_not_alpha_perm_eq())) 
+  ) [
+    ((∑ a : A, ∑ b : B, @f _[]^[]), (∑ a : A, @f _[]^[]));
+    ((∑ a : A, ∑ b : B, @f _[a : A]^[b : B]), (∑ a : A, @f _[a : A]^[b : B]));
+    ((∑ a : A, ∑ b : B, @f _[a : A]^[b : B]), 
+     (∑ a : A, ∑ b : B, @f _[b : B]^[a : A]));
+    ((∑ a : A, @f _[a : A]^[b : A]), 
+     (∑ a : A, @f _[b : A]^[a : A]));
+    ((∑ a : A, ∑ b : B, @f _[a : A]^[b : B] * ∑ c : C, @g _[a : A]^[c : C]),
+     (∑ c : C, ∑ a : A, @g _[a : A]^[b' : B, c : C] * ∑ b' : B, @f _[a : A]^[b' : B]))
+  ].
+
+
+
+Ltac2 test_tensorexpr_notation () : UTest.t :=
+  UTest.foreach (_tensorexpr_notation()) 
+    (uncurry test_tensorexpr_notation_value).
+
+Ltac2 test_tensorlist_notation () : UTest.t :=
+  UTest.foreach (_tensorlist_notation()) 
+    (uncurry test_tensorlist_notation_value).
+
+Ltac2 test_alpha_equivalent () : UTest.t :=
+  UTest.foreach (_alpha_equiv()) 
+    (uncurry (test_tensors_alpha_equiv "")).
+
+Ltac2 test_non_alpha_equivalent () : UTest.t :=
+  UTest.foreach (_non_alpha_equiv()) 
+    (uncurry (test_tensors_non_alpha_equiv "")).
+
+Ltac2 test_to_from_tensorlist () : UTest.t :=
+  UTest.foreach (_equal_to_from_tensorexprs())
+    (test_tensorexpr_eq_to_from_tensorlist).
+
+Ltac2 test_to_from_tensorexpr () : UTest.t :=
+  UTest.foreach (_equal_to_from_tensorlists())
+    (test_tensorlist_eq_to_from_tensorexpr).
+
+Ltac2 test_tensorexpr_to_tensorlist () : UTest.t :=
+  UTest.foreach (_to_tensorlist_vals())
+    (uncurry test_tensorexpr_to_tensorlist_val).
+
+Ltac2 test_tensorlist_perm_eq () : UTest.t :=
+  UTest.foreach (_tensorlist_perm_eq())
+    (uncurry test_tensorlists_are_perm_eq).
+
+Ltac2 test_tensorlist_alpha_perm_eq () : UTest.t :=
+  UTest.foreach (_tensorlist_alpha_perm_eq())
+    (uncurry test_tensorlists_are_alpha_perm_eq).
+
+Ltac2 test_tensorexpr_sem_eq () : UTest.t :=
+  UTest.foreach (_tensorexpr_sem_eq())
+    (uncurry test_tensorexprs_are_sem_eq).
+
+Ltac2 test_tensorlist_not_perm_eq () : UTest.t :=
+  UTest.foreach (_tensorlist_not_perm_eq())
+    (uncurry test_tensorlists_not_perm_eq).
+
+Ltac2 test_tensorlist_not_alpha_perm_eq () : UTest.t :=
+  UTest.foreach (_tensorlist_not_alpha_perm_eq())
+    (uncurry test_tensorlists_not_alpha_perm_eq).
+
+Ltac2 test_tensorexpr_not_sem_eq () : UTest.t :=
+  UTest.foreach (_tensorexpr_not_sem_eq())
+    (uncurry test_tensorexprs_not_sem_eq).
+
+Ltac2 tests () := [
+  ("TensorExpr notation", test_tensorexpr_notation);
+  ("TensorList notation", test_tensorlist_notation);
+  ("alpha_convertible", test_alpha_equivalent);
+  ("not alpha_convertible", test_non_alpha_equivalent);
+  ("to and from TensorList", test_to_from_tensorlist);
+  ("to and from TensorExpr", test_to_from_tensorexpr);
+  ("TensorExpr to TensorList", test_tensorexpr_to_tensorlist);
+  ("TensorList eq up to perm", test_tensorlist_perm_eq);
+  ("TensorList not eq up to perm", test_tensorlist_not_perm_eq);
+  ("TensorList eq up to perm and alpha", test_tensorlist_alpha_perm_eq);
+  ("TensorList not eq up to perm and alpha", test_tensorlist_not_alpha_perm_eq);
+  ("TensorExpr eq up to semantic", test_tensorexpr_sem_eq);
+  ("TensorExpr not eq up to semantic", test_tensorexpr_not_sem_eq)
+].
+
+(* Ltac2 Eval _on_both pr_tensorexpr (_on_both tensorexpr_of_tensorlist
+  ((!∑ a : A, a' : A, c : C; @f _[a : A, a' : A]^[c : C]),
+     (!∑ a' : A, a : A, c' : C; @f _[a' : A, a : A]^[c' : C]))).
+
+Ltac2 Eval UTest.check test_tensorlist_alpha_perm_eq. *)
+
+Ltac2 Eval 
+  UTest.asserts UTest.noprint 
+  (* UTest.checks *)
+  (tests()).
+
+
+(* Ltac2 Eval
+  {sums := [("A", "a"); ("A", "a'"); ("B", "b")];
+  abstracts := [("f", [("A", "a")],[]); ("g",[],[("B", "b")])]}.
+Ltac2 Eval
+  (!∑ a : A, a' : A, b : B; @ f _[a : A]^[] * @ g _[]^[b : B]).
+ *)
+
+
+
+
+
 
 End Testing.
