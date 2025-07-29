@@ -252,3 +252,93 @@ End Match.
   (FSet.add 1 (in_edges (make "hi"))) [] [] [] "hello")).
 
 Ltac2 Eval FSet.cardinal (in_edges_set (make "test")). *)
+
+Module GraphNotation.
+
+
+(* Warning! This function will fail on bad inputs! *)
+Ltac2 graph_of_edges_in_out 
+  (es : (string * int option * int list * int list) list) 
+  (ins : int list) (outs : int list)
+  (extra_verts : int list) : Graph.t :=
+  (* Get all mentioned vertices *)
+  let vertices := List.nodup Int.equal (
+    List.concat [List.flat_map (fun (_, _, s, t) => List.append s t) es;
+    ins; outs; extra_verts]) in
+  let g := Graph.make () in 
+  (* Add all vertices to the graph *)
+  let g := List.fold_right 
+    (fun vi g => fst (Graph.add_vertex None (Some vi) g)) vertices g in 
+  (* Add all edges to the graph *)
+  let g := List.fold_right
+    (fun (i, (value, idx, s, t)) g => 
+      fst (Graph.add_edge (Some value) (Some (Option.default i idx)) s t g)) 
+    (List.enumerate es) g in 
+  Graph.set_outputs outs (Graph.set_inputs ins g).
+  
+Ltac2 Notation 
+  "!Graph" ins(list0(tactic(0), ",")) "->" outs(list0(tactic(0), ",")) ":"
+    edges(list0( (* A list of edges, each of which look like... *)
+      seq(opt(seq(ident, opt(seq("(", tactic(0), ")")), ":")), 
+        (* ... an optional name for the edge, such as "f :", with itself 
+          an optional edge index, e.g. "f (2) :", or nothing... *)
+      list0(tactic(0), ","), (* ... a comma-separated list of input vertices ... *)
+      "->",
+      list0(tactic(0), ",") (* ... and a comma-separated list of output vertices. *)
+      ), ";"))
+    verts(opt(seq("and", list1(tactic(0), ",")))) : 2 :=
+  let edges' := List.map (fun (may_id_idx, s, t) : 
+    (string * int option * int list * int list) => 
+    let (name, may_idx) := Option.map_default 
+      (fun (name, may_idx) => (Ident.to_string name, may_idx)) 
+        ("", None) may_id_idx in
+    (name, may_idx, s, t)) edges in 
+  let extra_verts : int list := Option.default [] verts in 
+  graph_of_edges_in_out edges' ins outs extra_verts.
+
+
+(* Warning! This function will fail or give invalid outputs on bad inputs! *)
+Ltac2 match_of_mapped_edges_verts (domain : Graph.t) (codomain : Graph.t)
+  (vs : (int * int) list) (es : (int * int) list) : Match.t :=
+  (* Get all mentioned vertices *)
+  let int_tag := FSet.Tags.int_tag in 
+  let edge_map := List.fold_right (fun (e, e') m => FMap.add e e' m) 
+    es (FMap.empty int_tag) in 
+  let edge_vertex_bindings := 
+    List.flat_map (fun (e, e') => 
+      let ed := Graph.edge_data domain e in 
+      let ed' := Graph.edge_data codomain e' in 
+      let s_binds := List.combine (EData.source ed) (EData.source ed') in 
+      let t_binds := List.combine (EData.target ed) (EData.target ed') in 
+      List.append s_binds t_binds) es in 
+  let vertex_map := List.fold_right (fun (v, v') m => FMap.add v v' m) 
+    (List.append edge_vertex_bindings vs) (FMap.empty int_tag) in 
+  let of_list l := List.fold_right FSet.add l (FSet.empty int_tag) in
+
+  let vertex_image := of_list (List.map snd (FMap.bindings vertex_map)) in 
+  let edge_image := of_list (List.map snd (FMap.bindings edge_map)) in 
+
+  Match.make_from domain codomain vertex_map vertex_image edge_map edge_image.
+
+(* Note that values of edges are currently unchecked in this 
+  parser and purely aesthetic *)
+Ltac2 Notation 
+  "!Match" domain(tactic(0)) "with" codomain(tactic(0)) "mapping"
+    edges(list0( (* A list of edges, each of which look like... *)
+      seq(seq(tactic(0), opt(seq("(", ident, ")"))), (* Index and optional value *)
+        "->", 
+          seq(tactic(0), opt(seq("(", ident, ")"))))
+      , ","))
+    verts(opt(seq("and", 
+      list1( (* A list of vertices, each of which look like... *)
+      seq(seq(tactic(0), opt(seq("(", ident, ")"))), (* Index and optional value *)
+        "->", 
+          seq(tactic(0), opt(seq("(", ident, ")"))))
+      , ",")))) : 2 :=
+      (* TODO: At the very least test values are equal, and ideally test they're equal to their values in the domain / codomain*)
+  let edges' := List.map (fun ((e, _),(e', _)) => (e, e')) edges in 
+  let verts' := Option.map_default 
+    (List.map (fun ((v, _),(v', _)) => (v, v'))) [] verts in 
+  match_of_mapped_edges_verts domain codomain verts' edges'.
+
+End GraphNotation.
